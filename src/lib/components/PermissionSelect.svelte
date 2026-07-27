@@ -27,7 +27,7 @@
 				aria-label="Permissions"
 				class="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground flex items-center {showLabel
 					? 'gap-1.5 px-2'
-					: 'gap-1 px-1'} rounded-md py-1 text-sm transition-colors outline-none hover:bg-white/5"
+					: 'gap-1 px-1'} hover:bg-muted/60 rounded-md py-1 text-sm transition-colors outline-none"
 			>
 				<Icon class="size-4 {current.color}" />
 				{#if showLabel}<span>{current.label}</span>{/if}
