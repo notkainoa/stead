@@ -1,9 +1,18 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<script>
+			(() => {
+				const query = matchMedia('(prefers-color-scheme: dark)');
+				const apply = (dark) => document.documentElement.classList.toggle('dark', dark);
+				globalThis.steadThemeChanged = apply;
+				apply(query.matches);
+				query.addEventListener('change', (event) => apply(event.matches));
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
