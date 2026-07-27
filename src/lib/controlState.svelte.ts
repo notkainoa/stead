@@ -27,6 +27,7 @@ function ingestAudit(entry: ControlAuditEntry) {
 			pending = [
 				{
 					action_id: entry.action_id,
+					session_id: entry.session_id,
 					tab_id: entry.tab_id,
 					action_class: entry.action_class,
 					operation: entry.operation,
@@ -75,6 +76,11 @@ function ensureStarted() {
 	});
 }
 
+async function respondToConfirmation(request: ControlConfirmation, approve: boolean) {
+	await getControlConsoleBridge().respondToConfirmation(request.action_id, approve);
+	pending = pending.filter((candidate) => candidate.action_id !== request.action_id);
+}
+
 export function getControlState() {
 	ensureStarted();
 	return {
@@ -98,9 +104,46 @@ export function getControlState() {
 		isDriving(tabId: number | null | undefined) {
 			return tabId != null && !!drivingTabs[tabId];
 		},
-		async respond(request: ControlConfirmation, approve: boolean) {
-			await getControlConsoleBridge().respondToConfirmation(request.action_id, approve);
-			pending = pending.filter((candidate) => candidate.action_id !== request.action_id);
+		respond: respondToConfirmation,
+		async resolveFromUserMessage(sessionId: string | null, text: string) {
+			if (!sessionId) return;
+			const requests = pending.filter((request) => request.session_id === sessionId);
+			if (!requests.length) return;
+
+			const normalized = text
+				.trim()
+				.toLowerCase()
+				.replace(/[.!]+$/g, '')
+				.replace(/\s+/g, ' ');
+			const affirmative = new Set([
+				'yes',
+				'yes please',
+				'yep',
+				'yeah',
+				'sure',
+				'ok',
+				'okay',
+				'go ahead',
+				'yes go ahead',
+				'ok go ahead',
+				'okay go ahead',
+				'do it',
+				'proceed',
+				'continue',
+				'approve',
+				'approved',
+				'allow it',
+				'you are good to go',
+				"you're good to go",
+				'youre good to go',
+				'ur good to go'
+			]).has(normalized);
+
+			// A direct affirmative grants only the newest exact action. Any other
+			// reply retires the old request so it cannot ambush a later turn.
+			const [newest, ...older] = requests.sort((a, b) => b.action_id - a.action_id);
+			await Promise.all(older.map((request) => respondToConfirmation(request, false)));
+			await respondToConfirmation(newest, affirmative);
 		},
 		async cancel(tabId: number) {
 			await getControlConsoleBridge().cancel(tabId);

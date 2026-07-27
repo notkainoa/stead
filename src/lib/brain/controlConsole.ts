@@ -13,6 +13,7 @@ export type ControlActionClass =
 export type ControlAuditEntry = {
 	action_id: number;
 	sequence: string;
+	session_id: string;
 	tab_id: number;
 	action_class: ControlActionClass;
 	operation: string;
@@ -23,6 +24,7 @@ export type ControlAuditEntry = {
 
 export type ControlConfirmation = {
 	action_id: number;
+	session_id: string;
 	tab_id: number;
 	action_class: ControlActionClass;
 	operation: string;
@@ -63,6 +65,8 @@ type RawAuditEntry = {
 	actionId?: number;
 	action_id?: number;
 	sequence?: number | bigint | string;
+	sessionId?: string;
+	session_id?: string;
 	tabId?: number;
 	tab_id?: number;
 	actionClass?: number | string;
@@ -76,6 +80,8 @@ type RawAuditEntry = {
 type RawConfirmation = {
 	actionId?: number;
 	action_id?: number;
+	sessionId?: string;
+	session_id?: string;
 	tabId?: number;
 	tab_id?: number;
 	actionClass?: number | string;
@@ -172,6 +178,7 @@ function normalizeAudit(entry: RawAuditEntry): ControlAuditEntry {
 	return {
 		action_id: normalizedNumber(entry.action_id ?? entry.actionId),
 		sequence: String(entry.sequence ?? ''),
+		session_id: entry.session_id ?? entry.sessionId ?? '',
 		tab_id: normalizedNumber(entry.tab_id ?? entry.tabId),
 		action_class: actionClassName(entry.action_class ?? entry.actionClass),
 		operation: entry.operation ?? '',
@@ -184,6 +191,7 @@ function normalizeAudit(entry: RawAuditEntry): ControlAuditEntry {
 function normalizeConfirmation(request: RawConfirmation): ControlConfirmation {
 	return {
 		action_id: normalizedNumber(request.action_id ?? request.actionId),
+		session_id: request.session_id ?? request.sessionId ?? '',
 		tab_id: normalizedNumber(request.tab_id ?? request.tabId),
 		action_class: actionClassName(request.action_class ?? request.actionClass),
 		operation: request.operation ?? '',
@@ -332,6 +340,7 @@ class FakeControlConsole implements NativeControlConsole {
 		const entry: ControlAuditEntry = {
 			action_id: actionId,
 			sequence: String(this.audit.length + 1),
+			session_id: '',
 			tab_id: 0,
 			action_class: 'unknown',
 			operation: 'RespondToConfirmation',
