@@ -33,7 +33,7 @@
 				{...props}
 				variant="secondary"
 				size="sm"
-				class="max-w-[180px] gap-1.5 border-white/[0.08] bg-[#2a292e] font-medium transition-colors hover:bg-[#323036] aria-expanded:bg-[#323036]"
+				class="border-border bg-muted/75 hover:bg-muted aria-expanded:bg-muted max-w-[180px] gap-1.5 font-medium transition-colors"
 			>
 				<span class="truncate">{current}</span>
 				<ChevronDownIcon
@@ -46,7 +46,7 @@
 	</DropdownMenu.Trigger>
 
 	<DropdownMenu.Content
-		align="end"
+		align="start"
 		sideOffset={8}
 		class="w-72 max-w-[calc(100vw-1.5rem)]"
 	>

@@ -30,7 +30,7 @@
 		{#snippet child({ props })}
 			<button
 				{...props}
-				class="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors outline-none hover:bg-white/5 {triggerClass}"
+				class="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground hover:bg-muted/60 flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors outline-none {triggerClass}"
 			>
 				{#if leading}{@render leading()}{/if}
 				<span>{current?.label ?? value}</span>

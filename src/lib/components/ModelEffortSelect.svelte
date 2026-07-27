@@ -21,7 +21,7 @@
 	}: Props = $props();
 
 	const triggerText =
-		'text-muted-foreground hover:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors hover:bg-white/5 outline-none data-[state=open]:text-foreground';
+		'text-muted-foreground hover:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted/60 outline-none data-[state=open]:text-foreground';
 	const sectionLabel = 'text-muted-foreground px-2 pt-1.5 pb-1 text-xs font-medium';
 </script>
 

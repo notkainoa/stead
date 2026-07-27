@@ -67,7 +67,14 @@
 	];
 	const efforts = ['High', 'Medium', 'Low'];
 	const preferredModels: Record<string, string[]> = {
-		'openai-codex': ['gpt-5.4', 'gpt-5.5', 'gpt-5.4-mini']
+		'openai-codex': [
+			'gpt-5.6-sol',
+			'gpt-5.6-terra',
+			'gpt-5.6-luna',
+			'gpt-5.5',
+			'gpt-5.4',
+			'gpt-5.4-mini'
+		]
 	};
 
 	const brain = getBrainBridge();
@@ -182,14 +189,15 @@
 		await Promise.all([refreshModels(), refreshAuth()]);
 	}
 
-	onMount(() => {
+		onMount(() => {
 		try {
 			const saved = JSON.parse(localStorage.getItem('stead:last-model-selection') ?? 'null') as
-				| { provider?: string; model?: string }
+				| { provider?: string; model?: string; effort?: string }
 				| null;
 			if (saved?.provider && saved.model) {
 				provider = saved.provider;
 				model = saved.model;
+				if (saved.effort && efforts.includes(saved.effort)) effort = saved.effort;
 			}
 		} catch {
 			// Ignore corrupt or unavailable local storage and use the catalog default.
@@ -215,8 +223,11 @@
 	});
 
 	$effect(() => {
-		if (!restoredLastSelection || !provider || !model) return;
-		localStorage.setItem('stead:last-model-selection', JSON.stringify({ provider, model }));
+		if (!restoredLastSelection || !provider || !model || !effort) return;
+		localStorage.setItem(
+			'stead:last-model-selection',
+			JSON.stringify({ provider, model, effort })
+		);
 	});
 
 	async function connectOAuth() {
@@ -296,7 +307,7 @@
 	}
 
 	const triggerText =
-		'text-muted-foreground hover:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors hover:bg-white/5 outline-none data-[state=open]:text-foreground';
+		'text-muted-foreground hover:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted/60 outline-none data-[state=open]:text-foreground';
 </script>
 
 <div class="flex items-center gap-0.5">
@@ -320,7 +331,7 @@
 					<span
 						class="flex size-4 items-center justify-center rounded-full {authConfigured
 							? 'bg-emerald-500/15 text-emerald-300'
-							: 'bg-white/5 text-muted-foreground'}"
+							: 'bg-muted text-muted-foreground'}"
 					>
 						{#if authConfigured}
 							<CheckIcon class="size-3" />
@@ -347,7 +358,7 @@
 			</DropdownMenu.Item>
 			{#if apiKeyOpen}
 				<div class="px-2 pb-2">
-					<div class="flex items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1">
+					<div class="border-border bg-muted/50 flex items-center gap-1 rounded-md border p-1">
 						<input
 							bind:value={apiKeyDraft}
 							type="password"
@@ -360,7 +371,7 @@
 						/>
 						<button
 							type="button"
-							class="flex size-7 items-center justify-center rounded hover:bg-white/10 disabled:opacity-40"
+							class="hover:bg-muted flex size-7 items-center justify-center rounded disabled:opacity-40"
 							disabled={!apiKeyDraft.trim() || authBusy}
 							onclick={saveApiKey}
 							aria-label="Save API key"
