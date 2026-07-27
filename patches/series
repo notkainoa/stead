@@ -59,6 +59,8 @@ stead/agent-control/agent-session-ownership.patch
 stead/agent-control/session-scoped-approvals.patch
 stead/agent-control/accessible-dom-target-resolution.patch
 stead/agent-control/preserve-semantic-link-destinations.patch
+stead/agent-control/agent-network-and-uploads.patch
 stead/brain/replay-ready-to-new-observers.patch
 stead/branding/rebrand-internal-scheme-and-chat-omnibox.patch
 stead/branding/rebrand-settings-copy.patch
+stead/agent-control/observable-state-and-eval.patch

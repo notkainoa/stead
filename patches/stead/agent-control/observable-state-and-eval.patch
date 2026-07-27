@@ -1,0 +1,59 @@
+--- a/chrome/browser/ui/stead/agent_control/stead_agent_control_service.cc
++++ b/chrome/browser/ui/stead/agent_control/stead_agent_control_service.cc
+@@ -190,6 +190,15 @@
+ constexpr char16_t kAgentTabGroupTitle[] = u"Stead";
+ constexpr int32_t kNoOriginatingAction = 0;
+ constexpr uint32_t kDefaultMaxSnapshotNodes = 2000;
++// Blink only serializes checked state, range values, and the other
++// screen-reader attributes past the kExtendedProperties gate in
++// AXObject::Serialize; kAXModeBasic stops short of it, so every radio and
++// checkbox reached the agent with no checked state at all and the model had no
++// way to observe whether its own click landed. kInlineTextBoxes is
++// deliberately left out — per-line text boxes are pure tree bloat here.
++constexpr ui::AXMode kSteadAgentAXMode(ui::AXMode::kNativeAPIs |
++                                       ui::AXMode::kWebContents |
++                                       ui::AXMode::kExtendedProperties);
+ constexpr size_t kMaxSnapshotStringBytes = 4096;
+ constexpr size_t kMaxAuditEntries = 1000;
+ constexpr size_t kMaxApprovalGrants = 128;
+@@ -2794,7 +2803,7 @@
+                      weak_factory_.GetWeakPtr(), tab_id, action_id,
+                      cancel_epoch, std::move(options), start_time,
+                      std::move(callback)),
+-      ui::kAXModeBasic, max_nodes, kColdSnapshotTimeout,
++      kSteadAgentAXMode, max_nodes, kColdSnapshotTimeout,
+       content::WebContents::AXTreeSnapshotPolicy::kAll);
+ }
+ 
+@@ -5659,7 +5668,7 @@
+ 
+   scoped_ax_modes_[tab_id] =
+       content::BrowserAccessibilityState::GetInstance()
+-          ->CreateScopedModeForWebContents(web_contents, ui::kAXModeBasic);
++          ->CreateScopedModeForWebContents(web_contents, kSteadAgentAXMode);
+ }
+ 
+ void SteadAgentControlService::PrivateBrowserControl::ClearTabState(
+@@ -6775,12 +6784,21 @@
+     const std::string& operation,
+     const std::string& approval_scope,
+     bool force_confirmation) {
++  // Eval on a tab the agent already opened and drives is not a privilege
++  // escalation — it is the agent reading a page it is otherwise free to click,
++  // type into, and screenshot. Secret-tainted frames are refused outright
++  // before this point (see Eval), so the remaining gate only ever fired on
++  // ordinary DOM inspection, once per call, mid-task. It still applies to tabs
++  // the user owns.
++  const bool eval_needs_confirmation =
++      action_class == mojom::ActionClass::kEval &&
++      !(browser_control_ && browser_control_->IsAgentOwnedTab(tab_id));
+   const bool requires_confirmation =
+       force_confirmation ||
+       action_class == mojom::ActionClass::kDestructive ||
+       action_class == mojom::ActionClass::kPayment ||
+       action_class == mojom::ActionClass::kFileAccess ||
+-      action_class == mojom::ActionClass::kEval;
++      eval_needs_confirmation;
+ 
+   if (!requires_confirmation) {
+     return nullptr;
