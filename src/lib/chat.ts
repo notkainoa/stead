@@ -32,6 +32,11 @@ export type ContextRef = {
 };
 
 export type UserMessage = { role: 'user'; text: string; context: ContextRef[] };
+export type ChatError = {
+	kind: 'auth' | 'model' | 'network' | 'generic';
+	title: string;
+	detail: string;
+};
 export type AssistantMessage = {
 	role: 'assistant';
 	steps: Step[];
@@ -42,6 +47,8 @@ export type AssistantMessage = {
 	blocks: Block[];
 	tokens: Token[];
 	revealed: number;
+	error?: ChatError;
+	artifacts?: Array<{ name: string; kind?: 'code' | 'doc' }>;
 };
 export type Message = UserMessage | AssistantMessage;
 

@@ -27,10 +27,16 @@ export type BrainSessionMessage = {
 	metadata: Record<string, unknown>;
 };
 
+export type BrainArtifactInfo = {
+	path: string;
+	name: string;
+};
+
 export type BrainLoadedSession = {
 	session: BrainSessionInfo;
 	messages: BrainSessionMessage[];
 	model?: BrainModelSelection;
+	artifacts: BrainArtifactInfo[];
 };
 
 export type ProviderAuthStatus = {
@@ -76,6 +82,7 @@ export type BrainModelSelection = {
 };
 
 export type AgentPermissionMode = 'ask' | 'read' | 'full';
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export type BrainTabContext = {
 	tab_id: number;
@@ -97,11 +104,14 @@ export type NativeBrainConsole = {
 	createSession(title: string | null, originSurface: string): Promise<BrainRequestResult>;
 	listSessions(): Promise<BrainRequestResult>;
 	loadSession(sessionId: string): Promise<BrainRequestResult>;
+	getPermissionMode(): Promise<AgentPermissionMode>;
+	setPermissionMode(mode: AgentPermissionMode): Promise<void>;
 	sendMessage(
 		sessionId: string,
 		text: string,
 		tabContexts?: BrainTabContext[],
 		model?: BrainModelSelection | null,
+		reasoningEffort?: ReasoningEffort,
 		permissionMode?: AgentPermissionMode
 	): Promise<BrainRequestResult>;
 	cancelTurn(sessionId: string): Promise<BrainRequestResult>;
@@ -155,11 +165,14 @@ type MojoRemote = {
 	createSession(title: string | null, originSurface: string): Promise<{ result: MojoBrainResult }>;
 	listSessions(): Promise<{ result: MojoBrainResult }>;
 	loadSession(sessionId: string): Promise<{ result: MojoBrainResult }>;
+	getPermissionMode(): Promise<{ permissionMode: MojoBrainPermissionMode }>;
+	setPermissionMode(permissionMode: MojoBrainPermissionMode): Promise<unknown>;
 	sendMessage(
 		sessionId: string,
 		text: string,
 		tabContexts: Array<{ tabId: number; url: string; title: string }>,
 		model: BrainModelSelection | null,
+		reasoningEffort: ReasoningEffort,
 		permissionMode: MojoBrainPermissionMode
 	): Promise<{ result: MojoBrainResult }>;
 	cancelTurn(sessionId: string): Promise<{ result: MojoBrainResult }>;
@@ -205,11 +218,15 @@ type Waiter<T> = {
 	accept: (event: BrainConsoleEvent, payload: unknown) => T | undefined;
 	resolve: (value: T) => void;
 	reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
+	timeoutMs: number;
+	timer: ReturnType<typeof setTimeout> | null;
 };
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const TURN_IDLE_TIMEOUT_MS = 2 * 60 * 1000;
 const AUTH_EVENT_TIMEOUT_MS = 5 * 60 * 1000;
+
+class BrainRequestIdleError extends Error {}
 const BRAIN_MOJO_MODULES = [
 	'chrome://resources/mojo/chrome/browser/ui/stead/brain/brain_console.mojom-webui.js',
 	'/brain_console.mojom-webui.js',
@@ -411,6 +428,15 @@ function toMojoPermissionMode(
 	return permissionModes.kRead;
 }
 
+function fromMojoPermissionMode(
+	mode: MojoBrainPermissionMode,
+	permissionModes: MojoModule['BrainPermissionMode']
+): AgentPermissionMode {
+	if (mode === permissionModes.kFull) return 'full';
+	if (mode === permissionModes.kRead) return 'read';
+	return 'ask';
+}
+
 function parsePayload(event: BrainConsoleEvent): unknown {
 	try {
 		return JSON.parse(event.payload_json);
@@ -463,11 +489,21 @@ class MojoBrainConsole implements NativeBrainConsole {
 		return this.call(() => this.remote.loadSession(sessionId));
 	}
 
+	async getPermissionMode() {
+		const response = await this.remote.getPermissionMode();
+		return fromMojoPermissionMode(response.permissionMode, this.permissionModes);
+	}
+
+	async setPermissionMode(mode: AgentPermissionMode) {
+		await this.remote.setPermissionMode(toMojoPermissionMode(mode, this.permissionModes));
+	}
+
 	sendMessage(
 		sessionId: string,
 		text: string,
 		tabContexts: BrainTabContext[] = [],
 		model?: BrainModelSelection | null,
+		reasoningEffort: ReasoningEffort = 'high',
 		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		return this.call(() =>
@@ -476,6 +512,7 @@ class MojoBrainConsole implements NativeBrainConsole {
 				text,
 				toMojoTabContexts(tabContexts),
 				model ?? null,
+				reasoningEffort,
 				toMojoPermissionMode(permissionMode, this.permissionModes)
 			)
 		);
@@ -578,11 +615,20 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 		return (await this.getNative()).loadSession(sessionId);
 	}
 
+	async getPermissionMode() {
+		return (await this.getNative()).getPermissionMode();
+	}
+
+	async setPermissionMode(mode: AgentPermissionMode) {
+		return (await this.getNative()).setPermissionMode(mode);
+	}
+
 	async sendMessage(
 		sessionId: string,
 		text: string,
 		tabContexts: BrainTabContext[] = [],
 		model?: BrainModelSelection | null,
+		reasoningEffort: ReasoningEffort = 'high',
 		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		return (await this.getNative()).sendMessage(
@@ -590,6 +636,7 @@ class LazyNativeBrainConsole implements NativeBrainConsole {
 			text,
 			tabContexts,
 			model,
+			reasoningEffort,
 			permissionMode
 		);
 	}
@@ -655,6 +702,10 @@ class BrainBridge {
 	readonly isNative: boolean;
 	private listeners = new Set<(event: BrainConsoleEvent, payload: unknown) => void>();
 	private waiters = new Set<Waiter<unknown>>();
+	private activeTurns = new Map<
+		string,
+		{ event: BrainConsoleEvent; payload: unknown }
+	>();
 	private bufferedEvents = new Map<
 		string,
 		Array<{ event: BrainConsoleEvent; payload: unknown }>
@@ -669,6 +720,11 @@ class BrainBridge {
 	/** Skill catalog from the latest brain `ready` event (may lag subscribe). */
 	get skills(): BrainSkillInfo[] {
 		return this.cachedSkills;
+	}
+
+	/** Current turn snapshot replayed by native code to surfaces that bind late. */
+	getActiveTurn(sessionId: string) {
+		return this.activeTurns.get(sessionId);
 	}
 
 	subscribe(listener: (event: BrainConsoleEvent, payload: unknown) => void) {
@@ -709,9 +765,18 @@ class BrainBridge {
 			return {
 				session: loaded.session,
 				messages: loaded.messages ?? [],
-				model: loaded.model
+				model: loaded.model,
+				artifacts: loaded.artifacts ?? []
 			};
 		});
+	}
+
+	getPermissionMode() {
+		return this.native.getPermissionMode();
+	}
+
+	setPermissionMode(mode: AgentPermissionMode) {
+		return this.native.setPermissionMode(mode);
 	}
 
 	async listProviderAuth() {
@@ -801,6 +866,7 @@ class BrainBridge {
 		text: string;
 		tabContexts?: BrainTabContext[];
 		model?: BrainModelSelection | null;
+		reasoningEffort?: ReasoningEffort;
 		permissionMode?: AgentPermissionMode;
 	}) {
 		const accepted = await this.native.sendMessage(
@@ -808,14 +874,29 @@ class BrainBridge {
 			params.text,
 			params.tabContexts ?? [],
 			params.model ?? null,
+			params.reasoningEffort ?? 'high',
 			params.permissionMode ?? 'ask'
 		);
 		this.assertAccepted(accepted);
-		await this.waitFor(accepted.request_id, (event) => {
-			if (event.type === 'assistant_done') return true;
-			if (event.type === 'error') return true;
-			return undefined;
-		});
+		try {
+			await this.waitFor(
+				accepted.request_id,
+				(event) => {
+					if (event.type === 'assistant_done') return true;
+					if (event.type === 'error') return true;
+					return undefined;
+				},
+				TURN_IDLE_TIMEOUT_MS
+			);
+		} catch (error) {
+			// Only an actual idle timeout needs an explicit abort. Provider/auth
+			// errors are already terminal; cancelling them creates a second, unrelated
+			// "not running" event that can be mistaken for new turn activity.
+			if (error instanceof BrainRequestIdleError) {
+				await this.native.cancelTurn(params.sessionId).catch(() => undefined);
+			}
+			throw error;
+		}
 	}
 
 	cancelTurn(sessionId: string) {
@@ -853,18 +934,29 @@ class BrainBridge {
 				accept,
 				resolve,
 				reject,
-				timer: setTimeout(() => {
-					this.waiters.delete(waiter as Waiter<unknown>);
-					this.bufferedEvents.delete(requestId);
-					reject(new Error(`Timed out waiting for brain request ${requestId}.`));
-				}, timeoutMs)
+				timeoutMs,
+				timer: null
 			};
+			this.resetWaiterTimeout(waiter as Waiter<unknown>);
 			this.waiters.add(waiter as Waiter<unknown>);
 			const buffered = this.bufferedEvents.get(requestId) ?? [];
 			for (const item of buffered) {
 				if (this.deliverToWaiter(waiter as Waiter<unknown>, item.event, item.payload)) break;
 			}
 		});
+	}
+
+	private resetWaiterTimeout(waiter: Waiter<unknown>) {
+		if (waiter.timer) clearTimeout(waiter.timer);
+		waiter.timer = setTimeout(() => {
+			this.waiters.delete(waiter);
+			this.bufferedEvents.delete(waiter.requestId);
+			waiter.reject(
+				new BrainRequestIdleError(
+					'Stead stopped waiting because the model was idle for too long. Please retry.'
+				)
+			);
+		}, waiter.timeoutMs);
 	}
 
 	private deliverToWaiter(
@@ -874,15 +966,18 @@ class BrainBridge {
 	) {
 		const error = eventError(event, payload);
 		if (error) {
-			clearTimeout(waiter.timer);
+			if (waiter.timer) clearTimeout(waiter.timer);
 			this.waiters.delete(waiter);
 			this.bufferedEvents.delete(waiter.requestId);
 			waiter.reject(error);
 			return true;
 		}
 		const value = waiter.accept(event, payload);
-		if (value === undefined) return false;
-		clearTimeout(waiter.timer);
+		if (value === undefined) {
+			this.resetWaiterTimeout(waiter);
+			return false;
+		}
+		if (waiter.timer) clearTimeout(waiter.timer);
 		this.waiters.delete(waiter);
 		this.bufferedEvents.delete(waiter.requestId);
 		waiter.resolve(value);
@@ -891,6 +986,13 @@ class BrainBridge {
 
 	private handleEvent(event: BrainConsoleEvent) {
 		const payload = parsePayload(event);
+		if (event.session_id) {
+			if (event.type === 'turn_started') {
+				this.activeTurns.set(event.session_id, { event, payload });
+			} else if (event.type === 'assistant_done' || event.type === 'error') {
+				this.activeTurns.delete(event.session_id);
+			}
+		}
 		if (event.type === 'ready') {
 			const record =
 				payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
@@ -932,6 +1034,7 @@ class BrainBridge {
 class FakeBrainConsole implements NativeBrainConsole {
 	private listeners = new Set<(event: BrainConsoleEvent) => void>();
 	private nextRequest = 1;
+	private permissionMode: AgentPermissionMode = 'ask';
 	private sessions: BrainSessionInfo[] = [
 		this.sessionInfo('dev-session', 'New chat', new Date(Date.now() - 4 * 60 * 1000)),
 		this.sessionInfo('dev-repo', 'Repository size check', new Date(Date.now() - 2 * 60 * 60 * 1000)),
@@ -990,14 +1093,30 @@ class FakeBrainConsole implements NativeBrainConsole {
 		return this.accepted(requestId);
 	}
 
+	async getPermissionMode() {
+		return this.permissionMode;
+	}
+
+	async setPermissionMode(mode: AgentPermissionMode) {
+		this.permissionMode = mode;
+	}
+
 	async sendMessage(
 		sessionId: string,
 		text: string,
 		_tabContexts: BrainTabContext[] = [],
 		_model?: BrainModelSelection | null,
+		_reasoningEffort: ReasoningEffort = 'high',
 		permissionMode: AgentPermissionMode = 'ask'
 	) {
 		const requestId = this.requestId();
+		this.emit(requestId, sessionId, 'turn_started', {
+			text,
+			tab_contexts: _tabContexts,
+			model: _model,
+			reasoning_effort: _reasoningEffort,
+			permission_mode: permissionMode
+		});
 		queueMicrotask(async () => {
 			const response = [
 				`**Dev brain bridge** is active (\`${permissionMode}\`). Native Chromium wiring will stream the real Pie turn for: *${text}*`,
