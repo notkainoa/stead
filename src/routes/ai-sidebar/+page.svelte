@@ -8,12 +8,12 @@
 	} from '$lib/brain/bridge';
 	import { motionEase } from '$lib/motion';
 	import { getControlConsoleBridge } from '$lib/brain/controlConsole';
+	import { getControlState } from '$lib/controlState.svelte';
 	import { createChatSession } from '$lib/chatSession.svelte';
-	import { loadPermissionMode, savePermissionMode } from '$lib/permission';
+	import { loadPermissionMode, loadSharedPermissionMode, savePermissionMode } from '$lib/permission';
 	import SidebarHeader from '$lib/components/SidebarHeader.svelte';
 	import Conversation from '$lib/components/Conversation.svelte';
 	import Composer from '$lib/components/Composer.svelte';
-	import PermissionBar from '$lib/components/PermissionBar.svelte';
 	import QuestionTool from '$lib/components/QuestionTool.svelte';
 	import ModelBar from '$lib/components/ModelBar.svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -36,6 +36,8 @@
 	let model = $state('claude-opus-4-6');
 	let effort = $state('High');
 	let permission = $state<AgentPermissionMode>(loadPermissionMode());
+	let permissionReady = $state(false);
+	const control = getControlState();
 	let activeRestoreKey = '';
 	let restoreVersion = 0;
 	const TAB_SESSIONS_KEY = 'stead.sidebar.sessions-by-tab.v1';
@@ -63,10 +65,16 @@
 				provider = selection.provider;
 				model = selection.model;
 			},
+			onPermissionMode: (mode) => {
+				permission = mode;
+				permissionReady = true;
+			},
 			onSessionChange: rememberSession
 		});
 
-	$effect(() => savePermissionMode(permission));
+	$effect(() => {
+		if (permissionReady) savePermissionMode(permission);
+	});
 
 	async function restoreTab(tab: BrainTabContext | null) {
 		const tabId = tab?.tab_id ?? null;
@@ -129,16 +137,26 @@
 		chromeApi?.send?.('openSteadFullChat', chat.sessionId ? [chat.sessionId] : []);
 	}
 
-	function continueAfterApproval(operation: string) {
-		chat.handleSend(`Approved ${operation}. Retry the action now.`, [], {
+	async function sendMessage(text: string, context: Parameters<typeof chat.handleSend>[1]) {
+		await control.resolveFromUserMessage(chat.sessionId, text);
+		chat.handleSend(text, context, {
 			provider,
 			model,
+			effort,
 			permission,
 			tabContext: currentTab
 		});
 	}
 
+	async function refreshOpenTabs() {
+		openTabs = await getControlConsoleBridge().getOpenTabContexts();
+	}
+
 	onMount(() => {
+		void loadSharedPermissionMode().then((mode) => {
+			permission = mode;
+			permissionReady = true;
+		});
 		// The sidebar tracks the tab it is bound to. Tab switches don't refocus
 		// the side panel's webview, so a light poll backs up the focus events.
 		const refresh = () =>
@@ -151,6 +169,7 @@
 					if (
 						tab.tab_id !== currentTab?.tab_id ||
 						tab.url !== currentTab?.url ||
+						tab.title !== currentTab?.title ||
 						tab.agent_owned !== currentTab?.agent_owned ||
 						tab.owner_session_id !== currentTab?.owner_session_id
 					) {
@@ -179,7 +198,7 @@
 	<main
 		bind:this={scrollEl}
 		onscroll={onScroll}
-		class="scrollbar-none absolute inset-0 overflow-y-auto"
+		class="scrollbar-none absolute inset-0 overflow-y-auto overscroll-none"
 		style="padding-top: 3.5rem; padding-bottom: {footerH}px;"
 	>
 		<Conversation messages={chat.messages} />
@@ -221,12 +240,6 @@
 			</button>
 		{/if}
 
-			<PermissionBar
-				tabId={currentTab?.tab_id ?? null}
-				onTakeOver={chat.stopStreaming}
-				onApproved={(request) => continueAfterApproval(request.operation)}
-			/>
-
 		<!-- The question tool REPLACES the reply bar while it's active -->
 		{#if chat.questionActive}
 			<div transition:fly={{ y: 12, duration: 260, easing: motionEase }}>
@@ -242,8 +255,8 @@
 					currentTab={currentTab}
 					{openTabs}
 					skills={chat.skills}
-					onSend={(text, context) =>
-						chat.handleSend(text, context, { provider, model, permission, tabContext: currentTab })}
+					onMentionOpen={refreshOpenTabs}
+					onSend={sendMessage}
 					onStop={chat.stopStreaming}
 					streaming={chat.streaming}
 					queued={chat.queue.map((q) => q.text)}

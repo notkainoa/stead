@@ -120,7 +120,7 @@
 </svelte:head>
 
 <div class="bg-background text-foreground min-h-dvh antialiased">
-	<header class="border-border/70 sticky top-0 z-20 border-b bg-black/75 backdrop-blur-xl">
+	<header class="border-border/70 bg-background/75 sticky top-0 z-20 border-b backdrop-blur-xl">
 		<div class="mx-auto flex h-14 max-w-4xl items-center gap-3 px-5">
 			<Button variant="ghost" size="icon" class="size-8" aria-label="Back" onclick={() => history.back()}>
 				<ArrowLeftIcon class="size-4" />
@@ -165,7 +165,7 @@
 							<div class="min-w-0">
 								<div class="flex items-center gap-2">
 									<h3 class="font-medium">{provider.label}</h3>
-									<span class="rounded px-1.5 py-0.5 text-xs {providerAuth.configured ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-muted-foreground'}">
+									<span class="rounded px-1.5 py-0.5 text-xs {providerAuth.configured ? 'bg-emerald-500/15 text-emerald-500 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}">
 										{providerAuth.configured ? 'Connected' : 'Not connected'}
 									</span>
 								</div>
@@ -200,7 +200,7 @@
 
 						{#if apiKeyProvider === provider.provider}
 							<div class="mt-3 flex max-w-md gap-2">
-								<input bind:value={apiKeyDraft} type="password" autocomplete="off" placeholder={`${provider.label} API key`} class="border-border bg-input/40 h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none focus:border-white/30" onkeydown={(event) => { if (event.key === 'Enter') void saveApiKey(provider.provider); }} />
+								<input bind:value={apiKeyDraft} type="password" autocomplete="off" placeholder={`${provider.label} API key`} class="border-border bg-input/40 focus:border-ring h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none" onkeydown={(event) => { if (event.key === 'Enter') void saveApiKey(provider.provider); }} />
 								<Button size="sm" disabled={!apiKeyDraft.trim() || busyProvider === provider.provider} onclick={() => saveApiKey(provider.provider)}>
 									<SaveIcon class="size-4" /> Save
 								</Button>

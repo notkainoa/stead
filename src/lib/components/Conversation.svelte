@@ -6,6 +6,8 @@
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
 
 	type Props = { messages: Message[] };
 	let { messages }: Props = $props();
@@ -70,7 +72,7 @@
 			href={tok.href}
 			target="_blank"
 			rel="noopener noreferrer"
-			class="underline decoration-white/30 underline-offset-2 transition-colors hover:decoration-white/70 {tok.b
+			class="underline decoration-current/30 underline-offset-2 transition-colors hover:decoration-current/70 {tok.b
 				? 'font-semibold'
 				: ''}">{tok.word}</a
 		>
@@ -115,7 +117,7 @@
 							>{bt.map((t) => t.word).join('')}</code
 						></pre>
 				{:else if block.kind === 'quote'}
-					<div class="text-muted-foreground border-l-2 border-white/15 pl-3">
+					<div class="text-muted-foreground border-border border-l-2 pl-3">
 						{#each bt as tok (tok.gi)}{@render word(tok)}{/each}
 					</div>
 				{:else}
@@ -131,14 +133,12 @@
 		{#if msg.role === 'user'}
 			<div class="flex flex-col items-end gap-1.5">
 				{#if msg.context?.length}
-					<div class="flex w-full min-w-0 flex-row flex-nowrap justify-start gap-1.5 overflow-hidden self-start">
+					<div class="flex w-full min-w-0 flex-row flex-nowrap justify-end gap-1.5 overflow-hidden self-end">
 						{#each msg.context as c (c.title)}
 							<div
-								class="surface-raised flex min-w-0 {msg.context.length > 1
-									? 'flex-1'
-									: 'w-fit max-w-[68%]'} items-center gap-2 overflow-hidden rounded-xl py-1 pr-2.5 pl-1"
+								class="surface-raised flex w-fit min-w-0 max-w-[68%] items-center gap-2 overflow-hidden rounded-xl py-1 pr-2.5 pl-1"
 							>
-								<div class="relative grid size-7 shrink-0 place-items-center rounded-md bg-white/[0.07]">
+								<div class="bg-muted relative grid size-7 shrink-0 place-items-center rounded-md">
 									<GlobeIcon class="text-muted-foreground size-4" />
 									{#if c.favicon}
 										<img
@@ -164,7 +164,7 @@
 					</div>
 				{/if}
 				<div
-					class="text-foreground max-w-[68%] rounded-2xl bg-white/[0.06] px-3.5 py-2.5 text-[15px] leading-relaxed"
+					class="bg-muted/70 text-foreground max-w-[68%] rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed"
 				>
 					{msg.text}
 				</div>
@@ -195,7 +195,39 @@
 						{/if}
 						</div>
 					{/if}
-						{@render answer(msg)}
+						{#if msg.error}
+							<div class="surface-raised flex max-w-xl items-start gap-3 rounded-xl px-3.5 py-3">
+								<CircleAlertIcon
+									class="mt-0.5 size-4 shrink-0 {msg.error.kind === 'auth'
+										? 'text-amber-400'
+										: 'text-muted-foreground'}"
+								/>
+								<div class="min-w-0">
+									<p class="text-foreground text-sm font-medium">{msg.error.title}</p>
+									<p class="text-muted-foreground mt-0.5 text-[13px] leading-relaxed">
+										{msg.error.detail}
+									</p>
+								</div>
+							</div>
+						{:else}
+							{@render answer(msg)}
+						{/if}
+						{#if msg.artifacts?.length}
+							<div
+								in:fade={{ duration: 180, easing: motionEase }}
+								class="surface-raised flex w-fit max-w-xl items-center gap-2.5 rounded-xl px-3 py-2"
+							>
+								<FileTextIcon class="text-muted-foreground/80 size-4 shrink-0" />
+								<p class="min-w-0 text-[13px] leading-snug">
+									<span class="text-muted-foreground">Created</span>
+									<span class="text-foreground ml-1 font-medium">
+										{msg.artifacts.length === 1
+											? msg.artifacts[0].name
+											: `${msg.artifacts.length} artifacts`}
+									</span>
+								</p>
+							</div>
+						{/if}
 				{/if}
 			</div>
 		{/if}

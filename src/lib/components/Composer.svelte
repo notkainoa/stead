@@ -53,6 +53,7 @@
 		onSend?: (value: string, context: ContextRef[]) => void;
 		onStop?: () => void;
 		onRemoveQueued?: (index: number) => void;
+		onMentionOpen?: () => void | Promise<void>;
 	};
 
 	let {
@@ -69,7 +70,8 @@
 		showContext = true,
 		onSend,
 		onStop,
-		onRemoveQueued
+		onRemoveQueued,
+		onMentionOpen
 	}: Props = $props();
 
 	// Mention targets are real data only: the bound tab (from the native tab
@@ -148,6 +150,27 @@
 		})
 	);
 
+	// The current tab keeps the same id when it navigates, so the keyed Composer
+	// instance stays mounted. Refresh its existing context card from the live tab
+	// metadata without re-adding it after the user explicitly removes it.
+	$effect(() => {
+		const current = currentTabContextItem();
+		if (!current) return;
+		untrack(() => {
+			const index = contextItems.findIndex((item) => item.id === current.id);
+			if (index < 0) return;
+			const existing = contextItems[index];
+			if (
+				existing.title === current.title &&
+				existing.sublabel === current.sublabel &&
+				existing.favicon === current.favicon &&
+				existing.tab_id === current.tab_id &&
+				existing.url === current.url
+			) return;
+			contextItems = contextItems.with(index, current);
+		});
+	});
+
 	function addContextItem(item: ContextItem) {
 		if (!contextItems.some((c) => c.id === item.id)) contextItems = [...contextItems, item];
 	}
@@ -220,6 +243,12 @@
 		return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	}
 
+	function displayMentionLabel(item: MentionItem) {
+		if (item.kind !== 'skill') return item.label;
+		const label = item.label.replaceAll('-', ' ');
+		return label.charAt(0).toUpperCase() + label.slice(1);
+	}
+
 	// Inline mentions are skills only (tabs/files become chips). Anchor at a word
 	// boundary so emails (foo@bar) don't match.
 	let mentionRe = $derived.by(() => {
@@ -262,6 +291,7 @@
 	function updateMention() {
 		const el = textarea;
 		if (!el) return (mentionOpen = false);
+		const wasOpen = mentionOpen;
 		const caret = el.selectionStart ?? value.length;
 		const before = value.slice(0, caret);
 		const at = before.lastIndexOf('@');
@@ -273,6 +303,7 @@
 			mentionQuery = token;
 			activeIndex = 0;
 			mentionOpen = true;
+			if (!wasOpen) void onMentionOpen?.();
 		} else {
 			mentionOpen = false;
 		}
@@ -378,56 +409,82 @@
 	{#if mentionOpen}
 		<div
 			bind:this={menuEl}
-			transition:fly={{ y: 6, duration: 160, easing: motionEase }}
-			class="bg-popover/40 ring-white/15 scrollbar-none absolute right-0 bottom-[calc(100%+0.5rem)] left-0 z-50 max-h-72 origin-bottom overflow-y-auto rounded-2xl p-1.5 shadow-2xl shadow-black/40 ring-1 backdrop-blur-2xl backdrop-saturate-150"
+			transition:scale={{ duration: 120, start: 0.97, opacity: 0, easing: motionEase }}
+			class="surface-glass scrollbar-none absolute bottom-[calc(100%+0.45rem)] left-0 z-50 max-h-[min(22rem,50dvh)] w-[min(32rem,100%)] origin-bottom-left overflow-y-auto overscroll-none rounded-[12px] p-1.5"
 		>
 			{#if flatItems.length}
 				{#each rows as row (row.kind === 'header' ? 'h-' + row.type : 'i-' + row.item.id)}
 					{#if row.kind === 'header'}
-						{#if !row.first}
-							<div class="bg-border mx-2 my-1.5 h-px"></div>
-						{/if}
 						<div
-							class="text-muted-foreground/60 px-2.5 pt-1 pb-1 text-[11px] font-semibold tracking-[0.08em] uppercase"
+							class="text-muted-foreground/60 px-2 pb-1 text-[11px] leading-none font-semibold tracking-[0.025em] uppercase {row.first
+								? 'pt-1'
+								: 'border-border/70 mt-1 border-t pt-2.5'}"
 						>
 							{row.type}
 						</div>
 					{:else}
 						{@const Icon = row.icon}
+						{@const displayLabel = displayMentionLabel(row.item)}
 						<button
 							type="button"
 							data-idx={row.index}
 							onmousedown={(e) => e.preventDefault()}
 							onclick={() => selectMention(row.item)}
 							onmouseenter={() => (activeIndex = row.index)}
-							class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors {activeIndex ===
+							class="flex w-full items-center gap-2 rounded-[7px] px-2 py-[5px] text-left {activeIndex ===
 							row.index
-								? 'bg-white/[0.07]'
-								: ''}"
+								? 'bg-[#0a64d8] text-white'
+								: 'text-foreground hover:bg-muted/70'}"
 						>
-							{#if row.item.favicon}
-								<img src={row.item.favicon} alt="" class="size-[18px] shrink-0 rounded" />
-							{:else}
-								<Icon class="text-muted-foreground size-[18px] shrink-0" />
-							{/if}
-							<span class="text-foreground truncate text-sm font-medium">{row.item.label}</span>
-							{#if row.item.sublabel}
-								<span class="text-muted-foreground/60 ml-auto truncate pl-3 text-xs">
-									{row.item.sublabel}
+							{#if row.item.kind === 'tab'}
+								<span class="grid size-5 shrink-0 place-items-center">
+									{#if row.item.favicon}
+										<img src={row.item.favicon} alt="" class="size-[18px] rounded-[4px]" />
+									{:else}
+										<Icon class="size-4 opacity-65" />
+									{/if}
 								</span>
 							{/if}
+							<span
+								class="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden {row.item.kind ===
+								'skill'
+									? 'pl-7'
+									: ''}"
+							>
+								<span
+									class="shrink-0 truncate text-[14px] leading-[1.25] font-medium {row.item
+										.sublabel
+										? 'max-w-[52%]'
+										: 'max-w-full'}"
+								>
+									{displayLabel}
+								</span>
+								{#if row.item.kind === 'skill' && row.item.sublabel}
+									<span
+										class="min-w-0 flex-1 truncate text-[13px] leading-[1.25] {activeIndex ===
+										row.index
+											? 'text-white/75'
+											: 'text-muted-foreground/70'}"
+									>
+										{row.item.sublabel}
+									</span>
+								{/if}
+							</span>
 						</button>
 					{/if}
 				{/each}
 			{:else}
-				<div class="text-muted-foreground px-2.5 py-2 text-sm">No matches</div>
+				<div class="text-muted-foreground px-2 py-2 text-[13px]">No matches</div>
 			{/if}
 		</div>
 	{/if}
 
 	<!-- Context row: cards stay inside the sidebar and clip long page metadata. -->
 	{#if contextItems.length}
-		<div transition:slide={{ duration: 240, easing: motionEase }} class="min-w-0 overflow-hidden">
+		<div
+			transition:slide={{ duration: 240, easing: motionEase }}
+			class="-mx-1 -mt-1 min-w-0 overflow-hidden px-1 pt-1"
+		>
 			<div class="mb-2 flex min-w-0 flex-row flex-nowrap items-center justify-start gap-1.5 overflow-hidden">
 				{#each contextItems as item (item.id)}
 				<div
@@ -438,7 +495,7 @@
 						? 'flex-1'
 						: 'w-fit'} items-center gap-2.5 overflow-hidden rounded-2xl py-1.5 pr-2 pl-1.5"
 				>
-					<div class="relative grid size-9 shrink-0 place-items-center rounded-lg bg-white/[0.07]">
+					<div class="bg-muted relative grid size-9 shrink-0 place-items-center rounded-lg">
 						{#if item.kind === 'file'}
 							<FileIcon class="text-muted-foreground size-5" />
 						{:else}
@@ -465,7 +522,7 @@
 						type="button"
 						onclick={() => removeContextItem(item.id)}
 						aria-label="Remove from context"
-						class="text-muted-foreground hover:text-foreground ml-1 grid size-5 shrink-0 place-items-center rounded-full opacity-60 transition hover:bg-white/10 hover:opacity-100 focus-visible:opacity-100"
+						class="text-muted-foreground hover:text-foreground hover:bg-muted ml-1 grid size-5 shrink-0 place-items-center rounded-full opacity-60 transition hover:opacity-100 focus-visible:opacity-100"
 					>
 						<XIcon class="size-3.5" />
 					</button>
@@ -491,7 +548,7 @@
 						type="button"
 						onclick={() => onRemoveQueued?.(i)}
 						aria-label="Remove from queue"
-						class="text-muted-foreground hover:text-foreground grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-white/10"
+						class="text-muted-foreground hover:text-foreground hover:bg-muted grid size-6 shrink-0 place-items-center rounded-md transition-colors"
 					>
 						<Trash2Icon class="size-4" />
 					</button>
@@ -537,7 +594,7 @@
 				rows="1"
 				cols="1"
 				{placeholder}
-				class="placeholder:text-muted-foreground scrollbar-none relative block max-h-40 w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-snug break-words whitespace-pre-wrap text-transparent caret-white outline-none"
+				class="placeholder:text-muted-foreground scrollbar-none caret-foreground relative block max-h-40 w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-snug break-words whitespace-pre-wrap text-transparent outline-none"
 			></textarea>
 		</div>
 
@@ -548,7 +605,7 @@
 			class="size-8 shrink-0 rounded-full transition-[filter,background-color,color] duration-150 disabled:opacity-100 {showStop
 				? 'bg-foreground text-background hover:bg-foreground/90'
 				: canSend
-					? 'surface-raised text-white hover:brightness-115'
+					? 'surface-raised text-foreground dark:text-white hover:brightness-115'
 					: 'surface-raised text-muted-foreground hover:brightness-115'}"
 			aria-label={showStop ? 'Stop' : 'Send'}
 		>

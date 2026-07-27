@@ -209,7 +209,7 @@
 				onclick={() => goto(qIndex - 1)}
 				disabled={qIndex === 0}
 				aria-label="Previous question"
-				class="hover:text-foreground grid size-6 place-items-center rounded-md transition-colors hover:bg-white/5 disabled:opacity-30 disabled:hover:bg-transparent"
+				class="hover:text-foreground hover:bg-muted/60 grid size-6 place-items-center rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
 			>
 				<ChevronLeftIcon class="size-4" />
 			</button>
@@ -219,7 +219,7 @@
 				onclick={() => goto(qIndex + 1)}
 				disabled={isLast}
 				aria-label="Next question"
-				class="hover:text-foreground grid size-6 place-items-center rounded-md transition-colors hover:bg-white/5 disabled:opacity-30 disabled:hover:bg-transparent"
+				class="hover:text-foreground hover:bg-muted/60 grid size-6 place-items-center rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
 			>
 				<ChevronRightIcon class="size-4" />
 			</button>
@@ -240,7 +240,7 @@
 						class="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors {active ===
 						i
 							? 'surface-raised'
-							: 'hover:bg-white/[0.03]'}"
+							: 'hover:bg-muted/40'}"
 					>
 						<span class="text-muted-foreground w-5 shrink-0 tabular-nums {selected ? 'text-indigo-300' : ''}"
 							>{i + 1}.</span
@@ -259,7 +259,7 @@
 								<span class="text-muted-foreground flex items-center gap-1.5">
 									<ArrowUpIcon class="size-4" />
 									<ArrowDownIcon class="size-4" />
-									<span class="grid size-6 place-items-center rounded-md bg-white/[0.08]">
+									<span class="bg-muted grid size-6 place-items-center rounded-md">
 										<CornerDownLeftIcon class="size-3.5" />
 									</span>
 								</span>
@@ -275,7 +275,7 @@
 					class="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors {active ===
 					customRow
 						? 'surface-raised'
-						: 'hover:bg-white/[0.03]'}"
+						: 'hover:bg-muted/40'}"
 				>
 					<span class="text-muted-foreground/70 grid w-5 shrink-0 place-items-center">
 						<PencilIcon class="size-4" />
