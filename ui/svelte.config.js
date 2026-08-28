@@ -18,7 +18,10 @@ const config = {
 		// Absolute asset paths (/_app/...) so they resolve under the WebUI host
 		// root regardless of the client route.
 		paths: { relative: false },
-		appDir: '_app'
+		appDir: '_app',
+		// The UI ships inside the browser rather than as a rolling web deploy.
+		// A stable version keeps identical source builds byte-for-byte reproducible.
+		version: { name: 'embedded' }
 	}
 };
 

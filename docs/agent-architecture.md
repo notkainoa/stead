@@ -512,7 +512,7 @@ stead-brain tool calls ──JSON──► BrainBroker ──AgentControl──�
 ```
 
 - **Lineage:** `c4pt0r/pie` provides the agent loop/runtime base. Stead vendors a
-  pinned Pie copy under `../brain/vendor/pie` and builds a product helper around
+  pinned Pie copy under `brain/vendor/pie` and builds a product helper around
   `crates/agent`/`crates/ai` concepts, not Pi's coding-agent shell.
 - **Process model:** the browser owns the helper lifecycle. Lazy-start on first
   chat/auth use, keep warm per profile, kill on profile shutdown, restart on

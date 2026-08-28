@@ -4,7 +4,7 @@
 # into resources/stead/sidebar/, which the Chromium build packs into the
 # stead://sidebar WebUI. Run this whenever the UI source changes.
 #
-# The UI lives in a sibling repo by default ($repo/../ui); override with
+# The UI lives in this monorepo at $repo/ui; override with
 # STEAD_UI_DIR=/path/to/ui.
 
 set -eux
@@ -19,7 +19,7 @@ _resolve_path() {
 
 _script_dir="$(dirname "$(_resolve_path "$0")")" # resources/stead
 _root_dir="$(dirname "$(dirname "$_script_dir")")" # repo root
-_ui_dir="${STEAD_UI_DIR:-$_root_dir/../ui}"
+_ui_dir="${STEAD_UI_DIR:-$_root_dir/ui}"
 _dest="$_script_dir/sidebar"
 
 if [ ! -d "$_ui_dir" ]; then
@@ -28,7 +28,7 @@ if [ ! -d "$_ui_dir" ]; then
 fi
 
 cd "$_ui_dir"
-bun install
+bun install --frozen-lockfile
 bun run build
 
 rm -rf "$_dest"

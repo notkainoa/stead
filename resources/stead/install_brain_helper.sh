@@ -11,7 +11,7 @@ _app_dir="$1"
 _arch="${2:-$(uname -m)}"
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _root_dir="$(cd "$_script_dir/../.." && pwd)"
-_brain_dir="$(cd "$_root_dir/../stead-brain" && pwd)"
+_brain_dir="${STEAD_BRAIN_DIR:-$_root_dir/brain}"
 
 case "$_arch" in
   arm64|aarch64)
@@ -27,9 +27,11 @@ case "$_arch" in
 esac
 
 if [ ! -f "$_brain_dir/Cargo.toml" ]; then
-  echo "Stead brain workspace not found at $_brain_dir" >&2
+  echo "Stead brain workspace not found at $_brain_dir (set STEAD_BRAIN_DIR to override)" >&2
   exit 1
 fi
+
+_brain_dir="$(cd "$_brain_dir" && pwd)"
 
 if [ ! -d "$_app_dir/Contents/MacOS" ]; then
   echo "app bundle MacOS directory not found: $_app_dir/Contents/MacOS" >&2

@@ -2,9 +2,9 @@
 
 Bundled Rust helper process for Stead's agent brain.
 
-This workspace is intentionally outside `helium-macos/` so Chromium consumes a
-built helper artifact instead of owning Cargo dependency churn while the brain
-is still being integrated.
+This workspace is kept under `brain/` so Chromium consumes a built helper
+artifact without owning Cargo dependency churn while the brain is being
+integrated.
 
 ## Layout
 

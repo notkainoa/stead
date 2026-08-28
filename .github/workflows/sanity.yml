@@ -6,6 +6,29 @@ permissions:
   contents: read
 
 jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: oven-sh/setup-bun@v2
+    - name: Check UI source
+      working-directory: ui
+      run: |
+        bun install --frozen-lockfile
+        bun run check
+    - name: Verify committed WebUI bundle
+      run: |
+        resources/stead/sync_sidebar_ui.sh
+        git diff --exit-code -- resources/stead/sidebar
+
+  brain:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Test brain workspace
+      run: cargo test --manifest-path brain/Cargo.toml --workspace --locked
+
   sanity:
     runs-on: macos-latest
     steps:

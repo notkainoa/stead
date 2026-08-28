@@ -10,16 +10,25 @@ per-tab content scripts, JSON message-passing, local proxies, CDP automation, an
 external daemon). Stead's fix: make everything the user touches **native**, and
 keep only the inference host out-of-process.
 
-This repository is the **macOS browser** — the Chromium fork itself. It forks
+This repository contains the complete open Stead client: the **macOS browser**,
+the SvelteKit **WebUI**, and the bundled Rust **agent helper**. The browser forks
 [helium-macos](https://github.com/imputnet/helium-macos) and embeds the shared
 [Helium](https://github.com/imputnet/helium) patch tree as the `helium-chromium`
 submodule. All of Stead's own Chromium changes are isolated in `patches/stead/`
 so they stay portable across upstream churn.
 
-The **UI** lives in a separate repo,
-[stead-ui](https://github.com/judekim0507/stead-ui) (SvelteKit). It's built to
-static assets and served as native Chromium **WebUI** surfaces — no extension,
-no content scripts. The built bundle is vendored here under `resources/stead/`.
+## Repository layout
+
+- `ui/` — SvelteKit source for chat, sidebar, settings, and new-tab surfaces.
+- `brain/` — Rust helper launched and bundled by the browser.
+- `patches/stead/` — Stead-owned Chromium integration.
+- `resources/stead/sidebar/` — generated UI bundle committed for Chromium builds.
+- `helium-chromium/` — pinned upstream Helium submodule.
+
+The UI is compiled to static assets and served as native Chromium **WebUI**
+surfaces—no extension or content scripts. Run
+`resources/stead/sync_sidebar_ui.sh` after UI changes to refresh the committed
+bundle.
 
 ## Status
 

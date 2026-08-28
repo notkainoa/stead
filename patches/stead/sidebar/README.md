@@ -2,7 +2,7 @@
 
 Hosts the Stead agent UI as a native Chromium WebUI in the browser side panel —
 no extension, content script, or service worker. The UI is the SvelteKit app in
-the sibling `ui/` repo, built as a static SPA and packed into Chromium.
+this repository's `ui/` workspace, built as a static SPA and packed into Chromium.
 
 Internal URL is **`chrome://sidebar.top-chrome/`** (real scheme
 `content::kChromeUIScheme`; the `.top-chrome` suffix marks it as a Top Chrome

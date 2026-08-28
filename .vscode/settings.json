@@ -1,5 +1,8 @@
 {
     "C_Cpp.intelliSenseEngine": "disabled",
     "C_Cpp.autocomplete": "disabled",
+    "files.associations": {
+        "*.css": "tailwindcss"
+    },
     "mojom.enableLanguageServer": "Disabled"
 }

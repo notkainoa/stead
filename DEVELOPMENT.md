@@ -1,35 +1,40 @@
-# Stead — how the pieces fit (dev map)
+# Stead — how the pieces fit
 
-Two folders, each with one job, connected by one script. That's the whole thing.
+Stead is one repository with three product components and one pinned upstream
+dependency.
 
 ```
-  ../ui                  ── sync script ──>   stead (this repo)        ── launches ──>   ../brain
-  the LOOK                copies built UI       the BROWSER                                the agent helper
-  SvelteKit app           into this repo        Chromium fork + patches                   bundled Rust + Pie
+  ui/                    ── sync script ──>   browser patches        ── launches ──>   brain/
+  SvelteKit source        generated WebUI      Chromium integration                       Rust + Pie helper
+                                assets
 ```
 
-## Repos
+## Repository map
 
-- **`stead`** (this one) — the browser. https://github.com/judekim0507/stead
-- **`stead-ui`** — the Svelte UI source (`../ui`). https://github.com/judekim0507/stead-ui
+- **`ui/`** — Svelte source for the native WebUI surfaces.
+- **`brain/`** — Rust agent helper and its pinned Pie source.
+- **`patches/stead/`** — Stead's Chromium integration.
+- **`resources/stead/sidebar/`** — generated UI bundle consumed by Chromium.
+- **`helium-chromium/`** — upstream Helium submodule; do not put Stead-owned
+  source here.
 
-This repo vendors the *built* UI (`resources/stead/sidebar/`); `stead-ui` holds
-the *source*. Edit source in `stead-ui`, then sync (below) to bring the build here.
+Edit the UI source under `ui/`, then sync it to refresh the committed browser
+bundle. Browser, UI, and brain changes can now land atomically in one commit.
 
 ## Which folder do I edit?
 
 | To change…                                              | Edit in…                 | See it via…                          |
 | ------------------------------------------------------- | ------------------------ | ------------------------------------ |
-| How the **UI** looks/works (chat, sidebar, new-tab)     | **`../ui`** (Svelte)     | `bun dev` — instant, in any browser  |
+| How the **UI** looks/works (chat, sidebar, new-tab)     | **`ui/`** (Svelte)       | `bun dev` — instant, in any browser  |
 | **Browser-level** stuff (new page surface, native, brain wiring) | **this repo** (`patches/stead/…`) | a Stead build               |
-| The **brain** (the agent itself)                        | **`../brain`** (Rust + Pie)| runs as a bundled helper process   |
+| The **brain** (the agent itself)                        | **`brain/`** (Rust + Pie) | runs as a bundled helper process   |
 
-You'll spend ~all your time in `../ui`. You rarely touch this repo for UI work.
+UI work does not require a Chromium build.
 
 ## Day-to-day UI loop (the common case)
 
 ```sh
-cd ../ui
+cd ui
 bun dev          # edit Svelte, see it live in a normal browser. No Chromium build.
 ```
 
@@ -37,16 +42,16 @@ When you want those UI changes **inside the Stead browser**, run one command fro
 this repo:
 
 ```sh
-resources/stead/sync_sidebar_ui.sh    # rebuilds ../ui and vendors the bundle in
+resources/stead/sync_sidebar_ui.sh    # rebuilds ui/ and vendors the bundle in
 ```
 
-(Override the UI location with `STEAD_UI_DIR=/path/to/ui` if it ever moves.)
+(Use `STEAD_UI_DIR=/path/to/ui` only to test an alternate checkout.)
 
 ## The one rule
 
 The built UI inside this repo — `resources/stead/sidebar/` — is a **generated
 copy**, like a compiled file. **Never edit it by hand.** Only edit the source in
-`../ui`, then re-run the sync script to regenerate it.
+`ui/`, then re-run the sync script to regenerate it.
 
 ## Building the actual browser
 
@@ -59,8 +64,9 @@ he build
 he run            # launches Stead with a dev profile
 ```
 
-`build.sh` / `he` automatically run the sync-into-tree step, so a build always
-picks up whatever is in `resources/stead/sidebar/`.
+`build.sh` / `he` install the committed bundle from
+`resources/stead/sidebar/`. Run the sync script before building whenever UI
+source changes; CI verifies that the committed bundle is current.
 
 ## The WebUI surfaces (all from the one Svelte app)
 
@@ -68,7 +74,7 @@ picks up whatever is in `resources/stead/sidebar/`.
 | -------------- | ------------------------------------ | -------------------------- |
 | `/ai-sidebar`  | **Ask Stead** side panel (toolbar)   | wired                      |
 | `/ai-chat`     | full-page chat, `stead://chat/ai-chat` | wired                    |
-| `/new-tab`     | new-tab page                         | not wired yet              |
+| `/new-tab`     | new-tab page                         | wired                      |
 | `/`            | (placeholder)                        | —                          |
 
 Each surface is one small patch in `patches/stead/…` that points the **same**
@@ -85,13 +91,13 @@ You don't need to think about it.
 
 A bundled Rust helper process that the browser launches and talks to over framed
 JSON stdio. The UI talks to the browser; the browser talks to the brain. The
-brain source lives in `../brain`, vendors pinned Pie under `../brain/vendor/pie`,
+brain source lives in `brain/`, vendors pinned Pie under `brain/vendor/pie`,
 and keeps browser tools mediated through the browser-side broker.
 
 The Rust side is scaffolded and testable now:
 
 ```sh
-cd ../brain
+cd brain
 cargo test --workspace
 cargo build --release -p stead-brain
 ```
