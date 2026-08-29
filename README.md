@@ -39,10 +39,69 @@ UI layer wired (the agent "brain" is the next phase):
 - Full-page chat at `stead://chat`
 - Custom **new tab page** (prerendered, paints instantly), replacing Chrome's NTP
 
-## Build & develop
+## Clone and develop
 
-- **Workflow / repo map:** [DEVELOPMENT.md](DEVELOPMENT.md)
-- **Compiling the browser** (needs macOS): [docs/building.md](docs/building.md)
+Clone with submodules so the pinned `helium-chromium` source is initialized:
+
+```sh
+git clone --recurse-submodules https://github.com/notkainoa/stead.git
+cd stead
+```
+
+If you already cloned without submodules, initialize them afterward:
+
+```sh
+git submodule update --init --recursive
+```
+
+For a fast UI-only development loop, install
+[Bun](https://bun.com/docs/installation), then run:
+
+```sh
+cd ui
+bun install --frozen-lockfile
+bun dev
+```
+
+This opens the SvelteKit UI in a regular browser. It does not exercise Stead's
+native Chromium integration.
+
+To build and run the complete macOS browser, install the prerequisites in
+[docs/building.md](docs/building.md), then run from the repository root:
+
+```sh
+resources/stead/sync_sidebar_ui.sh
+source dev.sh
+he setup # first build only
+he build
+he run
+```
+
+`he setup` downloads Chromium and prepares the patched source tree, so the first
+build requires substantial disk space and can take a while. After editing the
+UI, run `resources/stead/sync_sidebar_ui.sh` before rebuilding. For later browser
+builds, `he build` and `he run` are sufficient.
+
+## Build a DMG
+
+Build a DMG for the current Mac architecture from the repository root:
+
+```sh
+resources/stead/sync_sidebar_ui.sh
+./build.sh
+```
+
+On Apple Silicon, pass `x86_64` to produce an Intel build instead:
+
+```sh
+./build.sh x86_64
+```
+
+The resulting `.dmg` is written under `build/`. Without a Developer ID signing
+identity, the build uses ad-hoc signing, which is suitable for local testing but
+not distribution. See [docs/building.md](docs/building.md) for dependencies,
+signing, troubleshooting, and the complete build workflow, and
+[DEVELOPMENT.md](DEVELOPMENT.md) for the repository architecture.
 
 ## Credits
 
