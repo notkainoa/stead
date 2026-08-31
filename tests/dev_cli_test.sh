@@ -138,6 +138,7 @@ test_force_recreates_a_completed_setup() (
 
   ___stead_preflight() { printf 'preflight\n' >> "$STEAD_TEST_LOG"; }
   ___stead_prepare_submodules() { printf 'submodules\n' >> "$STEAD_TEST_LOG"; }
+  ___stead_validate_patch_syntax() { printf 'patches\n' >> "$STEAD_TEST_LOG"; }
   ___stead_sync_resources() { printf 'resources\n' >> "$STEAD_TEST_LOG"; }
   ___stead_clean_incomplete_setup() { printf 'clean\n' >> "$STEAD_TEST_LOG"; }
   ___helium_setup_presetup() { mkdir -p "$_src_dir"; printf 'presetup\n' >> "$STEAD_TEST_LOG"; }
@@ -147,7 +148,7 @@ test_force_recreates_a_completed_setup() (
 
   stead_cli setup --force >/dev/null
 
-  expected=$'preflight\nsubmodules\nresources\nclean\npresetup\nmerge\nquilt\nconfigure'
+  expected=$'preflight\nsubmodules\npatches\nresources\nclean\npresetup\nmerge\nquilt\nconfigure'
   actual="$(<"$STEAD_TEST_LOG")"
   [ "$actual" = "$expected" ] || fail "forced setup ran the wrong sequence: $actual"
   [ -f "$_setup_marker" ] || fail "forced setup did not write its completion marker"
@@ -188,6 +189,7 @@ test_patch_failure_is_resumable() (
 
   ___stead_preflight() { :; }
   ___stead_prepare_submodules() { :; }
+  ___stead_validate_patch_syntax() { :; }
   ___stead_sync_resources() { :; }
   ___stead_clean_incomplete_setup() { fail "resumable setup deleted the prepared source"; }
   ___helium_setup_presetup() { fail "resumable setup repeated source preparation"; }
@@ -221,6 +223,7 @@ test_fully_applied_patch_stack_is_success() (
 
   ___stead_preflight() { :; }
   ___stead_prepare_submodules() { :; }
+  ___stead_validate_patch_syntax() { :; }
   ___stead_sync_resources() { :; }
   ___stead_quilt() {
     [ "$1" = "top" ] || fail "fully applied stack attempted another push"

@@ -192,6 +192,10 @@ ___stead_prepare_submodules() {
     git -C "$_root_dir" submodule update --init --recursive
 }
 
+___stead_validate_patch_syntax() {
+    python3 "$_root_dir/devutils/check_stead_patch_syntax.py"
+}
+
 ___stead_sync_resources() {
     echo "Building the sidebar UI resources..."
     "$_root_dir/resources/stead/sync_sidebar_ui.sh"
@@ -381,6 +385,7 @@ ___helium_setup() {
     # available. This keeps a failed preflight safe to retry.
     ___stead_preflight
     ___stead_prepare_submodules
+    ___stead_validate_patch_syntax
     ___stead_sync_resources
 
     if [ "$recreate" -eq 1 ]; then
