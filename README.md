@@ -86,6 +86,45 @@ Use `./st build` when you only want to compile, or `./st run --no-build` when
 you deliberately want to launch the existing binary. See
 [docs/building.md](docs/building.md) for the prerequisite list and full workflow.
 
+## Testing your changes
+
+Every change should be handed off with the exact commands needed to test it,
+including the directory to run them from and what behavior to check.
+
+For a UI-only change, use the fast browser preview. This repository uses Bun,
+so run:
+
+```sh
+cd ui
+bun dev
+```
+
+The preview exercises the Svelte interface without rebuilding Chromium. To
+check that the UI still type-checks and builds, run `bun run check` from `ui/`.
+
+To test the complete Stead browser, return to the repository root and run:
+
+```sh
+./st setup  # first checkout only, or when setup is incomplete
+./st run
+```
+
+After a successful setup, normal changes only need `./st run`. It refreshes the
+UI bundle, compiles changed code, installs the brain helper, and launches Stead.
+Use `./st run --no-build` only when you intentionally want to launch the last
+successful binary without testing new source changes.
+
+Useful focused checks include:
+
+```sh
+bash tests/dev_cli_test.sh
+python3 -m unittest discover -s devutils/tests -p 'test_*.py'
+cargo test --manifest-path brain/Cargo.toml --workspace --locked
+```
+
+Run the checks that match the files you changed. A handoff should distinguish
+checks already completed from commands the next developer should run manually.
+
 ## Build a DMG
 
 Build a DMG for the current Mac architecture from the repository root:

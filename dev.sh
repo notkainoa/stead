@@ -673,7 +673,6 @@ Patch and source tools:
   reset             Remove the development source tree
 
 From a repository checkout, invoke this command as `./st`.
-`./dev` and the sourced `he` function remain as compatibility aliases.
 EOF
 }
 
@@ -713,20 +712,7 @@ __stead_menu() {
     esac
 }
 
-st() {
-    (__stead_menu "$@")
-}
-
-he() {
-    st "$@"
-}
-
 if ! (return 0 2>/dev/null); then
-    printf "usage:\n\t$ source dev.sh\n\t$ st help\n" 2>&1
-    exit 1
-else
-    if [ "${__helium_loaded-}" = "" ]; then
-        __helium_loaded=1
-        PS1="🎈 ${PS1-}"
-    fi
+    echo "dev.sh is internal. Run './st help'." >&2
+    exit 2
 fi

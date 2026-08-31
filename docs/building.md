@@ -138,11 +138,9 @@ launches the existing binary without compiling.
 7. Commit the patch & series change to a new branch and make a PR!
 
 #### Dev command help
-Run `./st help` to see all available commands.
 
-The old `he` command means **Helium**, the upstream browser this tooling came
-from. It remains available after `source dev.sh` for compatibility, and `./dev`
-also remains as a deprecated alias. New instructions use `./st`.
+Run `./st help` to see all available commands.
+`./st` is the only supported developer command entry point.
 
 #### quilt manual
 Confused about quilt? Run ```man quilt``` to read more about its functionality.

@@ -26,7 +26,7 @@ so it can be hosted by `WebUIContentsWrapperT` in the side panel, exactly like
 2. `resources/stead/install_sidebar_to_tree.sh <src>` — copies the vendored
    bundle into `chrome/browser/resources/stead_sidebar/` and regenerates
    `stead_sidebar_resources.grd` (via `gen_sidebar_grd.py`) for the hash-named
-   files. Called from `build.sh` and `dev.sh` (`he resources`) before `gn gen`.
+   files. Called from `build.sh` and `./st resources` before `gn gen`.
 
 ## Patches
 

@@ -1,16 +1,18 @@
 # Stead browser
 
 Stead is a Chromium browser built on Helium with a native AI agent. The product
-should retain full feature parity with Helium while keeping Stead-specific code
-small, fast, and easy to rebase.
+should retain full browser feature parity with Helium while keeping
+Stead-specific code small, fast, and easy to rebase. Stead is a new fork and
+does not preserve Helium's developer command names or shell workflow.
 
 These instructions apply to the entire repository. A more specific
 `AGENTS.md` adds rules for its own subtree.
 
 ## Product invariants
 
-- Preserve Helium behavior. Stead features should be additive unless the user
-  explicitly asks to replace an upstream behavior.
+- Preserve Helium browser behavior. Stead features should be additive unless
+  the user explicitly asks to replace an upstream behavior. This does not
+  require compatibility with Helium's developer CLI.
 - Protect browser performance. Consider startup time, first paint, tab memory,
   input latency, sidebar rendering, and background CPU before adding work.
 - Keep the architecture native. The WebUI talks to Chromium, Chromium mediates
@@ -119,8 +121,9 @@ Before calling a product change complete, decide which of these apply:
   installs the brain helper without launching.
 - `./st run` builds and launches. `./st run --no-build` deliberately launches
   the last successful binary without refreshing anything.
-- `./st help` is the canonical command reference. The old `he` commands are
-  compatibility aliases and should not appear in new documentation.
+- `./st help` is the canonical command reference. `./st` is the only supported
+  developer command entry point. Do not add `he`, `./dev`, or sourced-shell
+  compatibility aliases.
 - A completed setup can outlive a newly added prerequisite, so build commands
   must still run preflight checks before expensive or mutating work.
 - Chromium builds are large. Do not assume a quiet or slow compile is hung.
@@ -178,6 +181,15 @@ or generated artifact contract being protected.
   temporary profiles, or PR-only screenshots.
 - Update documentation in the same change when commands, prerequisites,
   architecture, bundle layout, or developer workflow changes.
+- Every code-change handoff must include a short "How to test" section with the
+  working directory, exact commands, and expected behavior. For UI-only work,
+  give `cd ui` followed by `bun dev`; also offer `./st run` from the repository
+  root when native browser integration matters. For full-browser work, explain
+  that `./st setup` is needed only when setup is incomplete, then use
+  `./st run`. Do not tell users to rebuild unrelated parts of the project.
+- Separate checks already run by the agent from manual verification the user
+  can perform. Never claim that a compile-only check proves startup or visible
+  behavior.
 - Do not create commits, push branches, or open pull requests unless the user
   explicitly asks.
 - Keep one concern per pull request. UI changes should include before-and-after

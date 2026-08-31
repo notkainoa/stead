@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-
-set -e
-
-dev_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-echo "note: './dev' is deprecated; use './st' instead." >&2
-exec "$dev_root/st" "$@"

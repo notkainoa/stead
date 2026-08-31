@@ -9,6 +9,10 @@ fail() {
   exit 1
 }
 
+stead_cli() {
+  (__stead_menu "$@")
+}
+
 test_setup_preflights_before_mutating() (
   fixture_root="$(mktemp -d /tmp/stead-dev-test.XXXXXX)"
   trap 'rm -rf "$fixture_root"' EXIT
@@ -47,9 +51,9 @@ test_setup_preflights_before_mutating() (
     ___stead_macos_is_supported() { :; }
 
     PATH=/usr/bin:/bin
-    first_output="$(st setup 2>&1)"
+    first_output="$(__stead_menu setup 2>&1)"
     first_status=$?
-    second_output="$(st setup 2>&1)"
+    second_output="$(__stead_menu setup 2>&1)"
     second_status=$?
     printf "%s" "$first_output" > "$STEAD_TEST_ROOT/first.output"
     printf "%s" "$second_output" > "$STEAD_TEST_ROOT/second.output"
@@ -82,7 +86,7 @@ test_doctor_reports_missing_cargo() (
   ___stead_xcode_is_supported() { :; }
   ___stead_macos_is_supported() { :; }
 
-  output="$(st doctor 2>&1)"
+  output="$(stead_cli doctor 2>&1)"
   status=$?
 
   [ "$status" -ne 0 ] || fail "doctor unexpectedly succeeded without cargo"
@@ -103,7 +107,7 @@ test_completed_setup_is_a_noninteractive_noop() (
   _presetup_marker="$_out_dir/.stead-presetup-complete"
   ___stead_preflight() { fail "completed setup ran the prerequisite check"; }
 
-  output="$(st setup 2>&1)"
+  output="$(stead_cli setup 2>&1)"
   status=$?
 
   [ "$status" -eq 0 ] || fail "completed setup did not exit successfully"
@@ -141,7 +145,7 @@ test_force_recreates_a_completed_setup() (
   ___stead_quilt() { printf 'quilt\n' >> "$STEAD_TEST_LOG"; }
   ___helium_configure() { printf 'configure\n' >> "$STEAD_TEST_LOG"; }
 
-  st setup --force >/dev/null
+  stead_cli setup --force >/dev/null
 
   expected=$'preflight\nsubmodules\nresources\nclean\npresetup\nmerge\nquilt\nconfigure'
   actual="$(<"$STEAD_TEST_LOG")"
@@ -159,11 +163,11 @@ test_run_builds_before_launching() (
   ___helium_build() { printf 'build\n' >> "$call_log"; }
   ___helium_launch() { printf 'launch\n' >> "$call_log"; }
 
-  st run
+  stead_cli run
   [ "$(<"$call_log")" = $'build\nlaunch' ] || fail "run did not build before launch"
 
   : > "$call_log"
-  st run --no-build
+  stead_cli run --no-build
   [ "$(<"$call_log")" = "launch" ] || fail "run --no-build unexpectedly compiled"
 )
 
@@ -191,7 +195,7 @@ test_patch_failure_is_resumable() (
   ___stead_quilt() { return 1; }
   ___helium_configure() { fail "setup configured after a patch failure"; }
 
-  output="$(st setup 2>&1)"
+  output="$(stead_cli setup 2>&1)"
   status=$?
 
   [ "$status" -ne 0 ] || fail "patch failure unexpectedly succeeded"
@@ -224,7 +228,7 @@ test_fully_applied_patch_stack_is_success() (
   }
   ___helium_configure() { :; }
 
-  output="$(st setup 2>&1)"
+  output="$(stead_cli setup 2>&1)"
   status=$?
 
   [ "$status" -eq 0 ] || fail "fully applied patch stack was treated as a failure"
@@ -236,11 +240,13 @@ test_help_is_an_explicit_command() (
   # shellcheck source=../dev.sh
   source "$repo_root/dev.sh"
 
-  output="$(st help 2>&1)"
+  output="$(stead_cli help 2>&1)"
   [[ "$output" == *"usage: st <command>"* ]] || fail "st help did not show st usage"
   [[ "$output" == *"setup [--force]"* ]] || fail "st help omitted setup"
+  ! declare -F he >/dev/null || fail "legacy he command is still defined"
+  ! declare -F st >/dev/null || fail "sourced dev.sh still defines a public st function"
 
-  output="$(st definitely-not-a-command 2>&1)"
+  output="$(stead_cli definitely-not-a-command 2>&1)"
   status=$?
   [ "$status" -eq 2 ] || fail "unknown st command did not exit with status 2"
   [[ "$output" == *"Unknown command"* ]] || fail "unknown st command was not identified"
