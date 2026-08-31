@@ -42,10 +42,12 @@ When you want those UI changes **inside the Stead browser**, run one command fro
 this repo:
 
 ```sh
-resources/stead/sync_sidebar_ui.sh    # rebuilds ui/ and vendors the bundle in
+./st run    # rebuilds the UI bundle and browser, then launches Stead
 ```
 
-(Use `STEAD_UI_DIR=/path/to/ui` only to test an alternate checkout.)
+Use `resources/stead/sync_sidebar_ui.sh` directly only when you want to refresh
+the committed bundle without compiling Chromium. Set
+`STEAD_UI_DIR=/path/to/ui` only to test an alternate checkout.
 
 ## The one rule
 
@@ -58,15 +60,13 @@ copy**, like a compiled file. **Never edit it by hand.** Only edit the source in
 Needs a Mac (see [docs/building.md](docs/building.md)). The dev flow:
 
 ```sh
-source dev.sh
-he setup          # first time: fetch Chromium, apply patches, etc.
-he build
-he run            # launches Stead with a dev profile
+./st setup    # first time: check dependencies, fetch Chromium, apply patches
+./st run      # refresh resources, build, and launch with a dev profile
 ```
 
-`build.sh` / `he` install the committed bundle from
-`resources/stead/sidebar/`. Run the sync script before building whenever UI
-source changes; CI verifies that the committed bundle is current.
+`./st run` and `./st build` install the generated bundle from
+`resources/stead/sidebar/` automatically. CI verifies that the committed bundle
+is current.
 
 ## The WebUI surfaces (all from the one Svelte app)
 

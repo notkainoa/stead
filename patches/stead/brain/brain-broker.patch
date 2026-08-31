@@ -23,12 +23,19 @@ index 5d1bb0f28ecaa..cd4506fd0c12 100644
 +                                         SteadSidebarUI, SteadChatUI,
 +                                         SteadNewTabUI>(map);
    RegisterWebUIControllerInterfaceBinder<
-@@ -617,3 +621,6 @@ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
-   registry.ForWebUI<SteadChatUI>().Add<stead::mojom::ControlConsole>();
-   registry.ForWebUI<SteadNewTabUI>().Add<stead::mojom::ControlConsole>();
-+  registry.ForWebUI<SteadSidebarUI>().Add<stead::mojom::BrainConsole>();
-+  registry.ForWebUI<SteadChatUI>().Add<stead::mojom::BrainConsole>();
-+  registry.ForWebUI<SteadNewTabUI>().Add<stead::mojom::BrainConsole>();
+@@ -615,5 +619,14 @@ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
+-  registry.ForWebUI<SteadSidebarUI>().Add<stead::mojom::ControlConsole>();
+-  registry.ForWebUI<SteadChatUI>().Add<stead::mojom::ControlConsole>();
+-  registry.ForWebUI<SteadNewTabUI>().Add<stead::mojom::ControlConsole>();
++  registry.ForWebUI<SteadSidebarUI>()
++      .Add<stead::mojom::ControlConsole>()
++      .Add<stead::mojom::BrainConsole>();
++  registry.ForWebUI<SteadChatUI>()
++      .Add<stead::mojom::ControlConsole>()
++      .Add<stead::mojom::BrainConsole>();
++  registry.ForWebUI<SteadNewTabUI>()
++      .Add<stead::mojom::ControlConsole>()
++      .Add<stead::mojom::BrainConsole>();
  
 diff --git a/chrome/browser/ui/stead/brain/BUILD.gn b/chrome/browser/ui/stead/brain/BUILD.gn
 new file mode 100644
@@ -1089,7 +1096,7 @@ index 0000000000000..71246ae8e56d
 +    *error_message = "Could not resolve stead-brain helper path.";
 +    return false;
 +  }
-+  if (!base::PathExists(helper)) {
++  if (access(helper.value().c_str(), X_OK) != 0) {
 +    *error_message = "stead-brain helper was not found at " +
 +                     helper.AsUTF8Unsafe() + ".";
 +    return false;
@@ -1102,6 +1109,12 @@ index 0000000000000..71246ae8e56d
 +  if (!base::CreatePipe(&child_stdin, &parent_stdin) ||
 +      !base::CreatePipe(&parent_stdout, &child_stdout)) {
 +    *error_message = "Could not create stead-brain stdio pipes.";
++    return false;
++  }
++  const int stdin_flags = fcntl(parent_stdin.get(), F_GETFL);
++  if (stdin_flags == -1 ||
++      fcntl(parent_stdin.get(), F_SETFL, stdin_flags | O_NONBLOCK) == -1) {
++    *error_message = "Could not configure stead-brain stdin.";
 +    return false;
 +  }
 +
@@ -1176,8 +1189,19 @@ index 0000000000000..71246ae8e56d
 +}
 +
 +bool SteadBrainService::WriteLine(std::string_view line) {
-+  return stdin_write_.is_valid() &&
-+         base::WriteFileDescriptor(stdin_write_.get(), line);
++  if (!stdin_write_.is_valid()) {
++    return false;
++  }
++  size_t written = 0;
++  while (written < line.size()) {
++    const ssize_t count = HANDLE_EINTR(
++        write(stdin_write_.get(), line.data() + written, line.size() - written));
++    if (count <= 0) {
++      return false;
++    }
++    written += static_cast<size_t>(count);
++  }
++  return true;
 +}
 +
 +void SteadBrainService::SendInitializeIfNeeded() {

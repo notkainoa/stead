@@ -917,30 +917,6 @@ Index: src/chrome/browser/ui/stead/brain/stead_brain_service.cc
    if (snapshot.root) {
      out.Set("root", AxNodeToDict(*snapshot.root));
    }
-@@ -440,6 +454,7 @@ void SteadBrainService::SendMessage(cons
-                                     const std::string& text,
-                                     std::vector<mojom::BrainTabContextPtr> tab_contexts,
-                                     mojom::BrainModelSelectionPtr model,
-+                                    const std::string& reasoning_effort,
-                                     mojom::BrainPermissionMode permission_mode,
-                                     SendMessageCallback callback) {
-   const std::string request_id = NextRequestId();
-@@ -448,6 +463,7 @@ void SteadBrainService::SendMessage(cons
-   request.Set("text", text);
-   request.Set("permission_mode",
-               PermissionModeToProtocolString(permission_mode));
-+  request.Set("reasoning_effort", reasoning_effort);
-   profile_->GetPrefs()->SetString(kLastPermissionModePref,
-                                   PermissionModeToProtocolString(permission_mode));
-   session_permission_modes_[session_id] = permission_mode;
-@@ -478,6 +494,7 @@ void SteadBrainService::SendMessage(cons
-     event.Set("session_id", session_id);
-     event.Set("text", text);
-     event.Set("permission_mode", PermissionModeToProtocolString(permission_mode));
-+    event.Set("reasoning_effort", reasoning_effort);
-     if (!tab_contexts.empty()) {
-       base::ListValue tabs;
-       for (const auto& tab_context : tab_contexts) {
 @@ -864,6 +881,10 @@ void SteadBrainService::HandleToolCall(c
      return;
    }

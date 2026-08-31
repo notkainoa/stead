@@ -20,6 +20,8 @@ helium/macos/open-shortcuts-settings-action.patch
 
 helium/macos/native-translation-context-option.patch
 
+stead/sdk/xcode-27-seatbelt.patch
+
 stead/branding/rebrand-to-stead.patch
 stead/branding/rebrand-password-manager-to-stead-vault.patch
 stead/branding/rebrand-password-generated-strings-to-stead-vault.patch
@@ -47,6 +49,7 @@ stead/newtab/newtab-ntp-redirect.patch
 
 stead/agent-control/native-control-layer.patch
 stead/brain/brain-broker.patch
+stead/agent-control/register-profile-service-factories.patch
 # Deferred: needs a rebase onto Chromium 149 — 3 hunks drift against
 # chrome_browser_interface_binders_webui_parts_desktop.cc, settings_menu.html,
 # and settings_ui.h. Non-essential (provider auth is also in the sidebar/chat
@@ -59,7 +62,6 @@ stead/agent-control/agent-session-ownership.patch
 stead/agent-control/session-scoped-approvals.patch
 stead/agent-control/accessible-dom-target-resolution.patch
 stead/agent-control/preserve-semantic-link-destinations.patch
-stead/agent-control/agent-network-and-uploads.patch
 stead/brain/replay-ready-to-new-observers.patch
 stead/branding/rebrand-internal-scheme-and-chat-omnibox.patch
 stead/branding/rebrand-settings-copy.patch

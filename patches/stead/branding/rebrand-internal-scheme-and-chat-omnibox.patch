@@ -21,7 +21,7 @@
  const char kViewSourceScheme[] = "view-source";
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -7299,6 +7299,16 @@ bool ChromeContentBrowserClient::HandleWebUI(
+@@ -7299,6 +7299,15 @@ bool ChromeContentBrowserClient::HandleWebUI(
      content::BrowserContext* browser_context) {
    DCHECK(browser_context);
  
@@ -80,6 +80,14 @@
      // Updates that don't depend upon the selected state go here.
 --- a/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
 +++ b/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
+@@ -92,6 +92,7 @@
+ #include "chrome/browser/ui/views/search_engines/dse_reset_dialog.h"
+ #include "chrome/common/channel_info.h"
+ #include "chrome/common/pref_names.h"
++#include "chrome/common/webui_url_constants.h"
+ #include "components/bookmarks/browser/bookmark_model.h"
+ #include "components/favicon/content/content_favicon_driver.h"
+ #include "components/favicon/core/favicon_service.h"
 @@ -101,6 +101,7 @@
  #include "content/public/browser/render_widget_host.h"
  #include "content/public/browser/render_widget_host_view.h"
@@ -161,9 +169,9 @@
 +#include "content/public/common/url_constants.h"
  #include "extensions/common/constants.h"
  #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-@@ -464,5 +465,15 @@ void OmniboxViewViews::EmphasizeURLComponents() {
-   const GURL navigation_url =
-       controller()->client()->GetNavigationEntryURL();
+@@ -463,3 +464,15 @@ void OmniboxViewViews::EmphasizeURLComponents() {
++  const GURL navigation_url =
++      controller()->client()->GetNavigationEntryURL();
 +  if ((navigation_url.SchemeIs(content::kChromeUIScheme) ||
 +       navigation_url.SchemeIs(content::kHeliumUIScheme)) &&
 +      navigation_url.host() == chrome::kSteadChatHost &&

@@ -5,10 +5,15 @@
 # (refresh and diff don't read QUILT_*_ARGS, and series displays absolute paths instead of relative)
 # Specifying a quiltrc file fixes this, so "--quiltrc -" fixes this too.
 # One side effect of '--quiltrc -' is that we lose default settings from /etc/quilt.quiltrc, so they are redefined below.
-alias quilt='quilt --quiltrc -'
+if command -v quilt >/dev/null 2>&1; then
+    quilt() {
+        command quilt --quiltrc - "$@"
+    }
+fi
 
 # Assume this script lives within devutils/
-PLATFORM_ROOT=$(dirname $(dirname $(greadlink -f $0)))
+_quilt_vars_script="${BASH_SOURCE[0]:-$0}"
+PLATFORM_ROOT="$(cd "$(dirname "$_quilt_vars_script")/.." && pwd -P)"
 
 export QUILT_PATCHES="$PLATFORM_ROOT/patches"
 export QUILT_SERIES="series.merged"

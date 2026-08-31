@@ -1,9 +1,269 @@
 #!/usr/bin/env bash
 
-_root_dir=$(dirname $(greadlink -f $0))
+_dev_script="${BASH_SOURCE[0]:-$0}"
+_root_dir="$(cd "$(dirname "$_dev_script")" && pwd -P)"
 
 source "$_root_dir/env.sh"
 source "$_root_dir/devutils/set_quilt_vars.sh"
+
+_setup_marker="$_out_dir/.stead-setup-complete"
+_presetup_marker="$_out_dir/.stead-presetup-complete"
+
+___stead_has_command() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+___stead_python_is_supported() {
+    python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 13))' >/dev/null 2>&1
+}
+
+___stead_select_homebrew_python() {
+    if ___stead_has_command python3 && ___stead_python_is_supported; then
+        return
+    fi
+    if ! ___stead_has_command brew; then
+        return
+    fi
+
+    local formula
+    local prefix
+    for formula in python python@3.14 python@3.13; do
+        prefix="$(brew --prefix "$formula" 2>/dev/null)" || continue
+        if [ -x "$prefix/libexec/bin/python3" ]; then
+            PATH="$prefix/libexec/bin:$PATH"
+            export PATH
+            return
+        fi
+    done
+}
+
+___stead_python_has_module() {
+    python3 -c "import $1" >/dev/null 2>&1
+}
+
+___stead_has_metal_toolchain() {
+    xcrun -sdk macosx -f metal >/dev/null 2>&1
+}
+
+___stead_has_brew_formula() {
+    brew list --versions "$1" >/dev/null 2>&1
+}
+
+___stead_xcode_is_supported() {
+    local major
+    major="$(xcodebuild -version 2>/dev/null | sed -n 's/^Xcode \([0-9][0-9]*\).*/\1/p')"
+    [ -n "$major" ] && [ "$major" -ge 26 ]
+}
+
+___stead_macos_is_supported() {
+    local major
+    major="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
+    [ -n "$major" ] && [ "$major" -ge 12 ]
+}
+
+___stead_select_homebrew_python
+
+___stead_preflight() {
+    local missing=0
+    local python_modules_missing=0
+    local python_install_command
+
+    echo "Checking development prerequisites..."
+
+    if ! ___stead_macos_is_supported; then
+        echo "  missing: macOS 12 or newer"
+        echo "           open 'x-apple.systempreferences:com.apple.Software-Update-Settings.extension'"
+        missing=1
+    fi
+
+    if ! ___stead_has_command git; then
+        echo "  missing: Git"
+        echo "           xcode-select --install"
+        missing=1
+    fi
+
+    if ! ___stead_has_command xcodebuild; then
+        echo "  missing: Xcode"
+        echo "           open 'macappstore://itunes.apple.com/app/id497799835'"
+        missing=1
+    elif ! ___stead_xcode_is_supported; then
+        echo "  missing: Xcode 26 or newer"
+        echo "           open 'macappstore://itunes.apple.com/app/id497799835'"
+        missing=1
+    fi
+
+    if ! ___stead_has_command brew; then
+        echo "  missing: Homebrew"
+        echo '           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        missing=1
+    fi
+
+    if ! ___stead_has_command python3; then
+        echo "  missing: Python 3"
+        echo "           brew install python@3.13"
+        missing=1
+        python_modules_missing=1
+    elif ! ___stead_python_is_supported; then
+        echo "  missing: Python 3.13 or newer"
+        echo "           brew install python@3.13"
+        missing=1
+        python_modules_missing=1
+    else
+        for module in httplib2 requests PIL; do
+            if ! ___stead_python_has_module "$module"; then
+                python_modules_missing=1
+            fi
+        done
+    fi
+
+    if [ "$python_modules_missing" -eq 1 ]; then
+        if ___stead_has_command python3 && ___stead_python_is_supported; then
+            python_install_command="$(command -v python3)"
+        else
+            python_install_command='"$(brew --prefix python@3.13)/libexec/bin/python3"'
+        fi
+        echo "  missing: Python build packages"
+        echo "           $python_install_command -m pip install --break-system-packages httplib2==0.22.0 requests pillow"
+        missing=1
+    fi
+
+    if ! ___stead_has_command ninja; then
+        echo "  missing: Ninja"
+        echo "           brew install ninja"
+        missing=1
+    fi
+
+    if ! ___stead_has_command wget; then
+        echo "  missing: wget"
+        echo "           brew install wget"
+        missing=1
+    fi
+
+    if ! ___stead_has_command greadlink; then
+        echo "  missing: GNU coreutils"
+        echo "           brew install coreutils"
+        missing=1
+    fi
+
+    if ___stead_has_command brew && ! ___stead_has_brew_formula readline; then
+        echo "  missing: readline"
+        echo "           brew install readline"
+        missing=1
+    fi
+
+    if ! ___stead_has_command quilt; then
+        echo "  missing: Quilt"
+        echo "           brew install quilt"
+        missing=1
+    fi
+
+    if ! ___stead_has_command bun; then
+        echo "  missing: Bun (used to build the sidebar UI)"
+        echo "           curl -fsSL https://bun.sh/install | bash"
+        missing=1
+    fi
+
+    if ! ___stead_has_command cargo; then
+        echo "  missing: Rust/Cargo (used to build the Stead brain helper)"
+        echo "           brew install rust"
+        missing=1
+    fi
+
+    if ___stead_has_command xcodebuild && ! ___stead_has_metal_toolchain; then
+        echo "  missing: Xcode Metal toolchain"
+        echo "           xcodebuild -downloadComponent MetalToolchain"
+        missing=1
+    fi
+
+    if [ "$missing" -ne 0 ]; then
+        echo "Install the missing prerequisites, then rerun your command." >&2
+        return 1
+    fi
+
+    echo "All development prerequisites are installed."
+}
+
+___stead_prepare_submodules() {
+    if [ -f "$_main_repo/utils/generate_resources.py" ]; then
+        return
+    fi
+
+    echo "Initializing Git submodules..."
+    git -C "$_root_dir" submodule update --init --recursive
+}
+
+___stead_sync_resources() {
+    echo "Building the sidebar UI resources..."
+    "$_root_dir/resources/stead/sync_sidebar_ui.sh"
+}
+
+___stead_setup_is_complete() {
+    [ -f "$_setup_marker" ] || {
+        # Recognize complete environments created before the marker existed.
+        [ -f "$_out_dir/build.ninja" ] && [ -x "$_out_dir/gn" ]
+    }
+}
+
+___stead_presetup_is_complete() {
+    [ -f "$_presetup_marker" ] || {
+        # Recognize a source tree prepared before stage markers existed.
+        [ -f "$_src_dir/DEPS" ] &&
+            [ -f "$_out_dir/args.gn" ] &&
+            [ -f "$_depot_tools_dir/autoninja.py" ]
+    }
+}
+
+___stead_patch_series_is_merged() {
+    [ -f "$_root_dir/patches/series.merged" ]
+}
+
+___stead_patch_stack_is_fully_applied() {
+    local last_patch
+    local top_patch
+    last_patch="$(awk 'NF && $1 !~ /^#/ { last = $1 } END { print last }' \
+        "$_root_dir/patches/series.merged")"
+    top_patch="$(___stead_quilt top 2>/dev/null)" || return 1
+    [ -n "$last_patch" ] && [ "$top_patch" = "$last_patch" ]
+}
+
+___stead_clean_incomplete_setup() {
+    if [ ! -e "$_src_dir" ] && [ ! -e "$_root_dir/patches/series.merged" ]; then
+        return
+    fi
+
+    if ___stead_setup_is_complete; then
+        echo "Recreating the completed development setup from scratch."
+    else
+        echo "An incomplete development setup was found; restarting it cleanly."
+    fi
+    "$_root_dir/devutils/update_patches.sh" unmerge >/dev/null 2>&1 || true
+    rm -rf "$_src_dir"
+    rm -f "$_subs_cache" "$_namesubs_cache"
+}
+
+___stead_should_redo_setup() {
+    if [ "${1-}" = "--force" ]; then
+        return 0
+    fi
+
+    if [ -t 0 ] && [ -t 1 ]; then
+        local answer
+        printf "Development setup is already complete. Redo it from scratch? [y/N] "
+        read -r answer
+        case "$answer" in
+            y|Y|yes|YES|Yes) return 0;;
+            *) echo "Keeping the existing development setup."; return 1;;
+        esac
+    fi
+
+    echo "Development setup is already complete; nothing to do."
+    echo "Run './st setup --force' to recreate it."
+    return 1
+}
+
+___stead_quilt() {
+    command quilt --quiltrc - "$@"
+}
 
 ___helium_setup_siso() {
     if [ -x "$_siso_path" ]; then
@@ -82,7 +342,7 @@ ___helium_resources() {
 ___helium_setup_presetup() {
     if [ -d "$_src_dir/out" ]; then
         echo "$_src_dir/out already exists" >&2
-        return
+        return 1
     fi
 
     rm -rf "$_src_dir" && mkdir -p "$_download_cache" "$_src_dir"
@@ -100,14 +360,67 @@ ___helium_setup_presetup() {
 }
 
 ___helium_setup() {
-    ___helium_setup_presetup
+    local force="${1-}"
+    local recreate=0
 
-    "$_root_dir/devutils/update_patches.sh" merge
+    if [ -n "$force" ] && [ "$force" != "--force" ]; then
+        echo "usage: ./st setup [--force]" >&2
+        return 2
+    fi
+
+    if ___stead_setup_is_complete; then
+        if ! ___stead_should_redo_setup "$force"; then
+            return 0
+        fi
+        recreate=1
+    elif [ "$force" = "--force" ]; then
+        recreate=1
+    fi
+
+    # Nothing below this point should run unless every external dependency is
+    # available. This keeps a failed preflight safe to retry.
+    ___stead_preflight
+    ___stead_prepare_submodules
+    ___stead_sync_resources
+
+    if [ "$recreate" -eq 1 ]; then
+        ___stead_clean_incomplete_setup
+    elif ! ___stead_presetup_is_complete && [ -e "$_src_dir" ]; then
+        # Failures during source preparation are not safely resumable because
+        # pruning/toolchain/resource steps may only be partially complete.
+        ___stead_clean_incomplete_setup
+    fi
+
+    if ___stead_presetup_is_complete; then
+        echo "Prepared Chromium source tree found; resuming setup."
+        touch "$_presetup_marker"
+    else
+        ___helium_setup_presetup
+        touch "$_presetup_marker"
+    fi
+
+    if ___stead_patch_series_is_merged; then
+        echo "Merged patch series found; resuming patch application."
+    else
+        "$_root_dir/devutils/update_patches.sh" merge
+    fi
 
     cd "$_src_dir"
-    quilt push -a --refresh
+    if ___stead_patch_stack_is_fully_applied; then
+        echo "Patch stack is already fully applied."
+    elif ! ___stead_quilt push -a; then
+        echo >&2
+        echo "Stead's patch stack does not apply to the prepared Chromium tree." >&2
+        echo "This is usually a repository patch bug, not a problem with your machine." >&2
+        echo "The prepared source tree has been preserved." >&2
+        echo "After updating the repository or fixing the patch, rerun './st setup' to resume." >&2
+        echo "Use './st setup --force' only if you want to recreate everything." >&2
+        return 1
+    fi
 
     ___helium_configure
+    touch "$_setup_marker"
+    echo "Development setup is ready. Run './st run' to build and launch Stead."
 }
 
 ___helium_reset() {
@@ -177,12 +490,35 @@ ___helium_substitution() {
 }
 
 ___helium_build() {
+    if ! ___stead_setup_is_complete; then
+        echo "Development setup is incomplete. Run './st setup' first." >&2
+        return 1
+    fi
+
+    # A completed source setup can outlive newly added build prerequisites.
+    # Recheck before touching generated resources so the failure stays clear
+    # and safe to retry.
+    ___stead_preflight
+
+    # Keep generated WebUI assets and the Chromium resource tree in sync so a
+    # normal build never depends on a separate resources command.
+    ___stead_sync_resources
+    ___helium_resources
+
     cd "$_src_dir"
     SISO_PATH="$_siso_path" python3 "$_depot_tools_dir/autoninja.py" \
     -k 0 -C "$_out_dir" chrome chromedriver
+
+    "$_root_dir/resources/stead/install_brain_helper.sh" \
+        "$_out_dir/Stead.app"
 }
 
-___helium_run() {
+___helium_launch() {
+    if [ ! -x "$_out_dir/Stead.app/Contents/MacOS/Stead" ]; then
+        echo "No development binary was found. Run './st run' to build it first." >&2
+        return 1
+    fi
+
     "$_out_dir/Stead.app/Contents/MacOS/Stead" \
     --user-data-dir="$HOME/Library/Application Support/com.steadbrowser.app.dev" \
     --enable-ui-devtools \
@@ -190,13 +526,25 @@ ___helium_run() {
     --disable-features=DialMediaRouteProvider
 }
 
+___helium_run() {
+    if [ -n "${1-}" ] && [ "$1" != "--no-build" ]; then
+        echo "usage: ./st run [--no-build]" >&2
+        return 2
+    fi
+
+    if [ "${1-}" != "--no-build" ]; then
+        ___helium_build
+    fi
+    ___helium_launch
+}
+
 ___helium_pull() {
     if [ -f "$_subs_cache" ]; then
-        echo "source files are substituted, please run 'he unsub' first" >&2
+        echo "source files are substituted, please run './st unsub' first" >&2
         return 1
     fi
 
-    cd "$_src_dir" && quilt pop -a || true
+    cd "$_src_dir" && ___stead_quilt pop -a || true
     "$_root_dir/devutils/update_patches.sh" unmerge || true
 
     for dir in "$_root_dir" "$_main_repo"; do
@@ -208,7 +556,7 @@ ___helium_pull() {
     done
 
     "$_root_dir/devutils/update_patches.sh" merge
-    cd "$_src_dir" && quilt push -a --refresh
+    cd "$_src_dir" && ___stead_quilt push -a --refresh
 }
 
 ___helium_patches_merge() {
@@ -220,11 +568,11 @@ ___helium_patches_unmerge() {
 }
 
 ___helium_quilt_push() {
-    cd "$_src_dir" && quilt push -a --refresh
+    cd "$_src_dir" && ___stead_quilt push -a --refresh
 }
 
 ___helium_quilt_pop() {
-    cd "$_src_dir" && quilt pop -a
+    cd "$_src_dir" && ___stead_quilt pop -a
 }
 
 ___helium_validate() {
@@ -241,13 +589,13 @@ ___helium_validate() {
     elif [ "$1" = "series" ]; then
         "$_root_dir/devutils/check_patch_files.sh"
     else
-        echo "unknown validate action. usage: he validate <config|patches|series>" >&2
+        echo "unknown validate action. usage: ./st validate <config|patches|series>" >&2
     fi
 }
 
 ___helium_format() {
     cd "$_src_dir"
-    quilt diff | "$_src_dir/third_party/clang-format/script/clang-format-diff.py" \
+    ___stead_quilt diff | "$_src_dir/third_party/clang-format/script/clang-format-diff.py" \
     -p1 -i -style=file
 }
 
@@ -282,7 +630,7 @@ ___helium_strip_compile_commands() {
 ___helium_tidy() {
     ___helium_find_tidy_diff || return;
     ___helium_strip_compile_commands;
-    quilt diff | "$_tidy_diff_script" \
+    ___stead_quilt diff | "$_tidy_diff_script" \
         -regex '.*\.(cc|mm)' \
         -use-color \
         -p1 \
@@ -296,10 +644,45 @@ ___helium_lint() {
     ___helium_tidy;
 }
 
-__helium_menu() {
+___stead_help() {
+    cat >&2 <<'EOF'
+usage: st <command>
+
+  setup [--force]  Check prerequisites and prepare the full dev environment
+  doctor           Check prerequisites without changing anything
+  build            Refresh resources and compile without launching
+  run [--no-build] Build and launch Stead (or launch the existing binary)
+  help              Show this help
+
+Patch and source tools:
+  presetup          Download sources and prepare third-party dependencies
+  configure         Generate the build configuration and tools
+  resources         Generate and copy Stead resources
+  sub | unsub       Apply or undo domain and name substitutions
+  namesub | nameunsub
+                    Apply or undo name substitutions only
+  translate         Apply translations
+  transgen          Generate translation source strings
+  merge | unmerge   Merge or unmerge the platform patch series
+  push | pop        Apply or undo all Quilt patches
+  pull              Pop patches, pull repositories, and reapply patches
+  validate <config|patches|series>
+                    Validate build configuration or patch state
+  format | tidy | lint
+                    Check or fix the topmost patch
+  reset             Remove the development source tree
+
+From a repository checkout, invoke this command as `./st`.
+`./dev` and the sourced `he` function remain as compatibility aliases.
+EOF
+}
+
+__stead_menu() {
     set -e
-    case $1 in
-        setup) ___helium_setup;;
+    case ${1-} in
+        ""|help) ___stead_help;;
+        setup) ___helium_setup "${2-}";;
+        doctor) ___stead_preflight;;
         presetup) ___helium_setup_presetup;;
         configure) ___helium_configure;;
         resources) ___helium_resources;;
@@ -315,62 +698,35 @@ __helium_menu() {
         pop) ___helium_quilt_pop;;
         pull) ___helium_pull;;
 
-        validate) ___helium_validate "$2";;
+        validate) ___helium_validate "${2-}";;
         format) ___helium_format;;
         tidy) ___helium_tidy;;
         lint) ___helium_lint;;
 
         build) ___helium_build;;
-        run) ___helium_run;;
+        run) ___helium_run "${2-}";;
         reset) ___helium_reset;;
         *)
-            echo "usage: he <command>" >&2
-            echo "\tsetup - sets up the dev environment fully for the first time" >&2
-            echo "\t         equivalent of: [presetup, merge, push, configure]" >&2
-            echo "\tpresetup - downloads sources, sets up GN, and prepares third-party dependencies" >&2
-            echo "\tconfigure - generates build configuration and tools" >&2
-            echo "\tresources - generates and copies Stead resources (such as icons)" >&2
-
-            echo "\n" >&2
-            echo "\tsub - apply google domain and name substitutions" >&2
-            echo "\tunsub - undo google domain and name substitutions" >&2
-            echo "\tnamesub - apply only name substitutions" >&2
-            echo "\tnameunsub - undo only name substitutions" >&2
-            echo "\ttranslate - apply translations from i18n directory" >&2
-            echo "\ttransgen - generate source strings for translation" >&2
-
-            echo "\n" >&2
-            echo "\tmerge - merges all patches" >&2
-            echo "\tunmerge - unmerges all patches" >&2
-            echo "\tpush - applies all patches" >&2
-            echo "\tpop - undoes all patches" >&2
-            echo "\tpull - undoes all patches, pulls from git, redoes all patches" >&2
-
-            echo "\n" >&2
-            echo "\tvalidate config - validates the build configuration" >&2
-            echo "\tvalidate patches - validates that patches are applied correctly" >&2
-            echo "\tvalidate series - checks the consistency of the series file" >&2
-            echo "\tformat - formats the topmost patch according to Chromium coding style" >&2
-            echo "\ttidy - runs clang-tidy on the topmost patch" >&2
-            echo "\tlint - he format + he tidy" >&2
-
-            echo "\n" >&2
-            echo "\tbuild - builds a development binary" >&2
-            echo "\trun - runs a development build of Stead with dev data dir & ui devtools enabled" >&2
-            echo "\treset - nukes everything" >&2
+            echo "Unknown command: $1" >&2
+            ___stead_help
+            return 2
     esac
 }
 
+st() {
+    (__stead_menu "$@")
+}
+
 he() {
-    (__helium_menu "$@")
+    st "$@"
 }
 
 if ! (return 0 2>/dev/null); then
-    printf "usage:\n\t$ source dev.sh\n\t$ he\n" 2>&1
+    printf "usage:\n\t$ source dev.sh\n\t$ st help\n" 2>&1
     exit 1
 else
-    if [ "$__helium_loaded" = "" ]; then
+    if [ "${__helium_loaded-}" = "" ]; then
         __helium_loaded=1
-        PS1="🎈 $PS1"
+        PS1="🎈 ${PS1-}"
     fi
 fi

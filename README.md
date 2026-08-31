@@ -66,21 +66,25 @@ bun dev
 This opens the SvelteKit UI in a regular browser. It does not exercise Stead's
 native Chromium integration.
 
-To build and run the complete macOS browser, install the prerequisites in
-[docs/building.md](docs/building.md), then run from the repository root:
+To build and run the complete macOS browser, run these commands from the
+repository root:
 
 ```sh
-resources/stead/sync_sidebar_ui.sh
-source dev.sh
-he setup # first build only
-he build
-he run
+./st setup
+./st run
 ```
 
-`he setup` downloads Chromium and prepares the patched source tree, so the first
-build requires substantial disk space and can take a while. After editing the
-UI, run `resources/stead/sync_sidebar_ui.sh` before rebuilding. For later browser
-builds, `he build` and `he run` are sufficient.
+`./st setup` checks every prerequisite first and prints the install command for
+anything missing. It then initializes submodules, builds the sidebar resources,
+downloads Chromium, and prepares the patched source tree. It is safe to retry
+after a failure and safe to run after setup is complete; use
+`./st setup --force` to recreate a completed environment.
+
+`./st run` refreshes the sidebar resources, builds changed code, and launches
+Stead. The first build requires substantial disk space and can take a while.
+Use `./st build` when you only want to compile, or `./st run --no-build` when
+you deliberately want to launch the existing binary. See
+[docs/building.md](docs/building.md) for the prerequisite list and full workflow.
 
 ## Build a DMG
 

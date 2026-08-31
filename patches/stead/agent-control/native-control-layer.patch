@@ -1,13 +1,18 @@
-diff --git a/chrome/browser/file_select_helper.cc b/chrome/browser/file_select_helper.cc
-index b8a24fd..9969d98 100644
 --- a/chrome/browser/file_select_helper.cc
 +++ b/chrome/browser/file_select_helper.cc
-@@ -16,2 +16,4 @@
+@@ -14,6 +14,8 @@
+ #include "base/files/file_util.h"
+ #include "base/functional/bind.h"
  #include "base/memory/ptr_util.h"
 +#include "base/no_destructor.h"
 +#include "base/observer_list.h"
  #include "base/strings/string_split.h"
-@@ -77,1 +79,24 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+@@ -74,6 +76,29 @@ void DeleteFiles(std::vector<base::FileP
+     base::DeleteFile(file_path);
+ }
+ 
 +base::ObserverList<FileSelectHelper::Observer>& GetSteadFileChooserObservers() {
 +  static base::NoDestructor<base::ObserverList<FileSelectHelper::Observer>>
 +      observers;
@@ -32,11 +37,17 @@ index b8a24fd..9969d98 100644
 +}
 +
  bool IsValidProfile(Profile* profile) {
-@@ -120,2 +145,3 @@
+   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+   if (!profile) {
+@@ -118,10 +143,21 @@ FileSelectHelper::FileSelectHelper(Profi
+ FileSelectHelper::~FileSelectHelper() {
+   // There may be pending file dialogs, we need to tell them that we've gone
    // away so they don't try and call back to us.
 +  NotifySteadFileChooserClosed(false);
    if (select_file_dialog_)
-@@ -125,1 +151,11 @@
+     select_file_dialog_->ListenerDestroyed();
+ }
+ 
 +// static
 +void FileSelectHelper::AddObserver(Observer* observer) {
 +  GetSteadFileChooserObservers().AddObserver(observer);
@@ -48,7 +59,12 @@ index b8a24fd..9969d98 100644
 +}
 +
  void FileSelectHelper::FileSelected(const ui::SelectedFileInfo& file,
-@@ -180,1 +216,49 @@
+                                     int /* index */) {
+   if (IsValidProfile(profile_)) {
+@@ -177,6 +213,54 @@ void FileSelectHelper::FileSelectionCanc
+   RunFileChooserEnd();
+ }
+ 
 +bool FileSelectHelper::SelectFilesForSteadAgent(
 +    const std::vector<base::FilePath>& paths) {
 +  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -98,17 +114,32 @@ index b8a24fd..9969d98 100644
 +}
 +
  void FileSelectHelper::StartNewEnumeration(const base::FilePath& path,
-@@ -399,1 +483,2 @@
+                                            const std::u16string& display_name) {
+   base_dir_ = path;
+@@ -396,6 +480,7 @@ void FileSelectHelper::ContentAnalysisCo
+ 
+ void FileSelectHelper::NotifyListenerAndEnd(
+     std::vector<blink::mojom::FileChooserFileInfoPtr> list) {
 +  NotifySteadFileChooserClosed(!list.empty());
    listener_->FileSelected(std::move(list), base_dir_, dialog_mode_);
-@@ -655,1 +740,6 @@
+   listener_.reset();
+ 
+@@ -652,6 +737,11 @@ void FileSelectHelper::RunFileChooserOnU
+   select_file_dialog_->SetUseMediaCapture(params->use_media_capture);
+ #endif
+ 
 +  NotifySteadFileChooserOpened(*params);
 +  if (!select_file_dialog_ || !render_frame_host_ || !web_contents_) {
 +    return;
 +  }
 +
    // Never consider the current scope as hung. The hang watching deadline (if
-@@ -677,1 +767,21 @@
+   // any) is not valid since the user can take unbounded time to choose the
+   // file.
+@@ -674,6 +764,26 @@ void FileSelectHelper::RunFileChooserOnU
+   select_file_types_.reset();
+ }
+ 
 +void FileSelectHelper::NotifySteadFileChooserOpened(
 +    const FileChooserParams& params) {
 +  stead_file_chooser_open_ = true;
@@ -130,11 +161,16 @@ index b8a24fd..9969d98 100644
 +}
 +
  // This method is called when we receive the last callback from the file chooser
-@@ -698,1 +808,2 @@
+ // dialog or if the renderer was destroyed. Perform any cleanup and release the
+ // reference we added in RunFileChooser().
+@@ -695,6 +805,7 @@ void FileSelectHelper::RunFileChooserEnd
+ 
+   if (listener_)
+     listener_->FileSelectionCanceled();
 +  NotifySteadFileChooserClosed(false);
    render_frame_host_ = nullptr;
-diff --git a/chrome/browser/file_select_helper.h b/chrome/browser/file_select_helper.h
-index 37c575d..dd3c941 100644
+   web_contents_ = nullptr;
+   // If the dialog was actually opened, dispose of our reference.
 --- a/chrome/browser/file_select_helper.h
 +++ b/chrome/browser/file_select_helper.h
 @@ -13,6 +13,7 @@
@@ -145,20 +181,18 @@ index 37c575d..dd3c941 100644
  #include "build/build_config.h"
  #include "components/enterprise/buildflags/buildflags.h"
  #include "components/enterprise/common/files_scan_data.h"
-@@ -32,6 +33,7 @@
-
+@@ -32,6 +33,7 @@ class ScopedTuckPictureInPicture;
+ 
  namespace content {
  class FileSelectListener;
 +class RenderFrameHost;
  class WebContents;
  }
--
-+
-@@ -64,7 +66,24 @@
-  public:
+ 
+@@ -65,6 +67,23 @@ class FileSelectHelper : public base::Re
    FileSelectHelper(const FileSelectHelper&) = delete;
    FileSelectHelper& operator=(const FileSelectHelper&) = delete;
-+
+ 
 +  class Observer : public base::CheckedObserver {
 +   public:
 +    virtual void OnFileChooserOpened(
@@ -172,7 +206,6 @@ index 37c575d..dd3c941 100644
 +
 +  static void AddObserver(Observer* observer);
 +  static void RemoveObserver(Observer* observer);
--
 +
 +  bool SelectFilesForSteadAgent(const std::vector<base::FilePath>& paths);
 +  bool CancelFileSelectionForSteadAgent();
@@ -180,18 +213,18 @@ index 37c575d..dd3c941 100644
    // Show the file chooser dialog.
    static void RunFileChooser(
        content::RenderFrameHost* render_frame_host,
-@@ -135,6 +154,10 @@
-   // Cleans up and releases this instance. This must be called after the last
+@@ -136,6 +155,10 @@ class FileSelectHelper : public base::Re
    // callback is received from the file chooser dialog.
    void RunFileChooserEnd();
-+
+ 
 +  void NotifySteadFileChooserOpened(
 +      const blink::mojom::FileChooserParams& params);
 +  void NotifySteadFileChooserClosed(bool files_selected);
- 
++
    // SelectFileDialog::Listener overrides.
    void FileSelected(const ui::SelectedFileInfo& file, int index) override;
-@@ -310,6 +333,9 @@
+   void MultiFilesSelected(
+@@ -310,6 +333,9 @@ class FileSelectHelper : public base::Re
    // The mode of file dialog last shown.
    blink::mojom::FileChooserParams::Mode dialog_mode_;
  
@@ -201,20 +234,20 @@ index 37c575d..dd3c941 100644
    // The enumeration root directory for EnumerateDirectory() and
    // RunFileChooser with kUploadFolder.
    base::FilePath base_dir_;
-diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
-index 4df3401fdbb42..bba11ffb8281e 100644
 --- a/chrome/browser/ui/BUILD.gn
 +++ b/chrome/browser/ui/BUILD.gn
-@@ -258,2 +258,4 @@ static_library("ui") {
+@@ -267,6 +267,8 @@ static_library("ui") {
+   deps = [
+     ":browser_element_identifiers",
      ":ui_features",
 +    "//chrome/browser/ui/stead/agent_control",
 +    "//chrome/browser/ui/stead/agent_control:mojo_bindings",
      ":url_identity",
-diff --git a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
-index 67542ae9a7bc3..5d1bb0f28ecaa 100644
+     "//base",
+     "//base:i18n",
 --- a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
 +++ b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
-@@ -30,6 +30,7 @@
+@@ -27,6 +27,7 @@
  #include "chrome/browser/ui/omnibox/omnibox_next_features.h"
  #include "chrome/browser/ui/ui_features.h"
  #include "chrome/browser/ui/views/side_panel/history/history_side_panel_coordinator.h"
@@ -222,7 +255,7 @@ index 67542ae9a7bc3..5d1bb0f28ecaa 100644
  #include "chrome/browser/ui/views/side_panel/tabs_from_other_devices/tabs_from_other_devices_side_panel_coordinator.h"
  #include "chrome/browser/ui/webui/access_code_cast/access_code_cast.mojom.h"
  #include "chrome/browser/ui/webui/access_code_cast/access_code_cast_ui.h"
-@@ -88,7 +89,10 @@
+@@ -87,7 +88,10 @@
  #include "chrome/browser/ui/webui/side_panel/history_clusters/history_clusters_side_panel_ui.h"
  #include "chrome/browser/ui/webui/side_panel/read_anything/read_anything_untrusted_ui.h"
  #include "chrome/browser/ui/webui/side_panel/reading_list/reading_list.mojom.h"
@@ -233,45 +266,38 @@ index 67542ae9a7bc3..5d1bb0f28ecaa 100644
  #include "chrome/browser/ui/webui/side_panel/tabs_from_other_devices/tabs_from_other_devices_side_panel_ui.h"
  #include "chrome/browser/ui/webui/suggest_internals/suggest_internals.mojom.h"
  #include "chrome/browser/ui/webui/suggest_internals/suggest_internals_ui.h"
-@@ -371,6 +371,7 @@ void PopulateChromeWebUIFrameBindersPartsDesktop(
+@@ -374,7 +378,8 @@ void PopulateChromeWebUIFrameBindersPart
    RegisterWebUIControllerInterfaceBinder<
        customize_color_scheme_mode::mojom::
            CustomizeColorSchemeModeHandlerFactory,
 -      CustomizeChromeUI>(map);
 +      CustomizeChromeUI,
 +      settings::SettingsUI>(map);
--
-+
+ 
    RegisterWebUIControllerInterfaceBinder<
-@@ -377,9 +378,10 @@ void PopulateChromeWebUIFrameBindersPartsDesktop(
        theme_color_picker::mojom::ThemeColorPickerHandlerFactory,
-       CustomizeChromeUI
- #if !BUILDFLAG(IS_CHROMEOS)
+@@ -383,7 +388,8 @@ void PopulateChromeWebUIFrameBindersPart
        ,
        ProfileCustomizationUI
  #endif  // !BUILDFLAG(IS_CHROMEOS)
 -      >(map);
 +      ,
 +      settings::SettingsUI>(map);
--
-+
+ 
    RegisterWebUIControllerInterfaceBinder<
-@@ -386,11 +388,12 @@ void PopulateChromeWebUIFrameBindersPartsDesktop(
        help_bubble::mojom::HelpBubbleHandlerFactory, UserEducationInternalsUI,
-       ReadingListUI, NewTabPageUI, CustomizeChromeUI, PasswordManagerUI,
-       HistoryUI, lens::LensOverlayUntrustedUI, lens::LensSidePanelUntrustedUI,
-       ReadAnythingUntrustedUI
- #if !BUILDFLAG(IS_CHROMEOS)
+@@ -394,7 +400,8 @@ void PopulateChromeWebUIFrameBindersPart
        ,
        ProfilePickerUI
  #endif  //! BUILDFLAG(IS_CHROMEOS)
 -      >(map);
 +      ,
 +      settings::SettingsUI>(map);
--
-+
+ 
  #if !defined(OFFICIAL_BUILD)
-@@ -421,5 +425,8 @@ void PopulateChromeWebUIFrameBindersPartsDesktop(
+   RegisterWebUIControllerInterfaceBinder<foo::mojom::FooHandler, NewTabPageUI>(
+@@ -444,6 +451,9 @@ void PopulateChromeWebUIFrameBindersPart
+ 
    RegisterWebUIControllerInterfaceBinder<
        reading_list::mojom::PageHandlerFactory, ReadingListUI>(map);
 +  RegisterWebUIControllerInterfaceBinder<stead::mojom::ControlConsole,
@@ -280,19 +306,16 @@ index 67542ae9a7bc3..5d1bb0f28ecaa 100644
    RegisterWebUIControllerInterfaceBinder<
        side_panel::mojom::BookmarksPageHandlerFactory, BookmarksSidePanelUI>(
        map);
-@@ -607,5 +614,8 @@ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
-       .Add<customize_color_scheme_mode::mojom::
+@@ -673,6 +683,9 @@ void PopulateChromeWebUIFrameInterfaceBr
                 CustomizeColorSchemeModeHandlerFactory>()
+       .Add<settings::mojom::BrowserShortcutsHandlerFactory>()
        .Add<help_bubble::mojom::HelpBubbleHandlerFactory>();
--
 +  registry.ForWebUI<SteadSidebarUI>().Add<stead::mojom::ControlConsole>();
 +  registry.ForWebUI<SteadChatUI>().Add<stead::mojom::ControlConsole>();
 +  registry.ForWebUI<SteadNewTabUI>().Add<stead::mojom::ControlConsole>();
-+
+ 
    if (webui_browser::IsWebUIBrowserEnabled()) {
-diff --git a/chrome/browser/ui/stead/agent_control/BUILD.gn b/chrome/browser/ui/stead/agent_control/BUILD.gn
-new file mode 100644
-index 0000000000000..f9f3cf0ea8747
+     registry.ForWebUI<WebUIBrowserUI>()
 --- /dev/null
 +++ b/chrome/browser/ui/stead/agent_control/BUILD.gn
 @@ -0,0 +1,61 @@
@@ -357,9 +380,6 @@ index 0000000000000..f9f3cf0ea8747
 +    "//url",
 +  ]
 +}
-diff --git a/chrome/browser/ui/stead/agent_control/agent_control.mojom b/chrome/browser/ui/stead/agent_control/agent_control.mojom
-new file mode 100644
-index 0000000000000..4cbb02c943bdb
 --- /dev/null
 +++ b/chrome/browser/ui/stead/agent_control/agent_control.mojom
 @@ -0,0 +1,348 @@
@@ -711,9 +731,6 @@ index 0000000000000..4cbb02c943bdb
 +  RespondToConfirmation(int32 action_id, bool approve);
 +  Cancel(int32 tab_id);
 +};
-diff --git a/chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.cc b/chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.cc
-new file mode 100644
-index 0000000000000..6f2f9ef28ed96
 --- /dev/null
 +++ b/chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.cc
 @@ -0,0 +1,74 @@
@@ -791,9 +808,6 @@ index 0000000000000..6f2f9ef28ed96
 +}
 +
 +}  // namespace stead
-diff --git a/chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.h b/chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.h
-new file mode 100644
-index 0000000000000..d27ea79e45295
 --- /dev/null
 +++ b/chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.h
 @@ -0,0 +1,54 @@
@@ -851,9 +865,6 @@ index 0000000000000..d27ea79e45295
 +}  // namespace stead
 +
 +#endif  // CHROME_BROWSER_UI_STEAD_AGENT_CONTROL_STEAD_AGENT_CONTROL_SERVICE_FACTORY_H_
-diff --git a/chrome/browser/ui/stead/agent_control/stead_agent_control_service.cc b/chrome/browser/ui/stead/agent_control/stead_agent_control_service.cc
-new file mode 100644
-index 0000000000000..7a3e021c74dab
 --- /dev/null
 +++ b/chrome/browser/ui/stead/agent_control/stead_agent_control_service.cc
 @@ -0,0 +1,6291 @@
@@ -7150,9 +7161,6 @@ index 0000000000000..7a3e021c74dab
 +}
 +
 +}  // namespace stead
-diff --git a/chrome/browser/ui/stead/agent_control/stead_agent_control_service.h b/chrome/browser/ui/stead/agent_control/stead_agent_control_service.h
-new file mode 100644
-index 0000000000000..c1c7d850f8a48
 --- /dev/null
 +++ b/chrome/browser/ui/stead/agent_control/stead_agent_control_service.h
 @@ -0,0 +1,394 @@
@@ -7550,21 +7558,23 @@ index 0000000000000..c1c7d850f8a48
 +}  // namespace stead
 +
 +#endif  // CHROME_BROWSER_UI_STEAD_AGENT_CONTROL_STEAD_AGENT_CONTROL_SERVICE_H_
-diff --git a/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.cc b/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.cc
-index 525a910..34ee0fe 100644
 --- a/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.cc
 +++ b/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.cc
-@@ -5,3 +5,4 @@
+@@ -4,11 +4,13 @@
+ 
  #include "chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.h"
  
 +#include <utility>
  #include <memory>
-@@ -10,3 +11,4 @@
+ 
+ #include "base/functional/bind.h"
+ #include "base/strings/escape.h"
  #include "chrome/browser/profiles/profile.h"
 +#include "chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.h"
  #include "chrome/browser/ui/browser.h"
  #include "chrome/browser/ui/browser_finder.h"
-@@ -110,4 +112,10 @@ void SteadSidebarUI::HandleOpenAiSettings(const base::ListValue&) {
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+@@ -190,4 +192,10 @@ void SteadSidebarUI::HandleOpenAiSetting
    Navigate(&params);
  }
  
@@ -7575,11 +7585,9 @@ index 525a910..34ee0fe 100644
 +}
 +
  WEB_UI_CONTROLLER_TYPE_IMPL(SteadSidebarUI)
-diff --git a/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.h b/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.h
-index 7fcf386..c3bde7b 100644
 --- a/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.h
 +++ b/chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.h
-@@ -8,11 +8,13 @@
+@@ -9,11 +9,13 @@
  #include <string_view>
  
  #include "base/values.h"
@@ -7593,7 +7601,7 @@ index 7fcf386..c3bde7b 100644
  
  class SteadSidebarUI;
  
-@@ -37,6 +39,9 @@ class SteadSidebarUI : public TopChromeWebUIController {
+@@ -39,6 +41,9 @@ class SteadSidebarUI : public TopChromeW
    SteadSidebarUI& operator=(const SteadSidebarUI&) = delete;
    ~SteadSidebarUI() override;
  
@@ -7603,22 +7611,21 @@ index 7fcf386..c3bde7b 100644
    static constexpr std::string_view GetWebUIName() { return "SteadSidebar"; }
  
   private:
-diff --git a/chrome/browser/ui/webui/stead_chat/stead_chat_ui.cc b/chrome/browser/ui/webui/stead_chat/stead_chat_ui.cc
-index afd8581..d9e5b93 100644
 --- a/chrome/browser/ui/webui/stead_chat/stead_chat_ui.cc
 +++ b/chrome/browser/ui/webui/stead_chat/stead_chat_ui.cc
-@@ -5,3 +5,4 @@
+@@ -4,9 +4,11 @@
+ 
  #include "chrome/browser/ui/webui/stead_chat/stead_chat_ui.h"
  
 +#include <utility>
  #include <memory>
-@@ -9,3 +10,4 @@
+ 
  #include "chrome/browser/profiles/profile.h"
 +#include "chrome/browser/ui/stead/agent_control/stead_agent_control_service_factory.h"
  #include "chrome/browser/ui/webui/favicon_source.h"
  #include "chrome/common/webui_url_constants.h"
-@@ -20,8 +22,9 @@
- #include "content/public/browser/web_ui_data_source.h"
+ // Reuses the shared Stead WebUI SPA bundle (same pak as the sidebar surface).
+@@ -21,7 +23,8 @@
  #include "services/network/public/mojom/content_security_policy.mojom.h"
  #include "ui/webui/webui_util.h"
  
@@ -7628,8 +7635,7 @@ index afd8581..d9e5b93 100644
    content::BrowserContext* browser_context =
        web_ui->GetWebContents()->GetBrowserContext();
    Profile* profile = Profile::FromBrowserContext(browser_context);
-@@ -53,4 +56,12 @@ SteadChatUI::SteadChatUI(content::WebUI* web_ui) : WebUIController(web_ui) {
-   source->DisableTrustedTypesCSP();
+@@ -54,3 +57,11 @@ SteadChatUI::SteadChatUI(content::WebUI*
  }
  
  SteadChatUI::~SteadChatUI() = default;
@@ -7641,8 +7647,6 @@ index afd8581..d9e5b93 100644
 +}
 +
 +WEB_UI_CONTROLLER_TYPE_IMPL(SteadChatUI)
-diff --git a/chrome/browser/ui/webui/stead_chat/stead_chat_ui.h b/chrome/browser/ui/webui/stead_chat/stead_chat_ui.h
-index 2db14f4..920a0f1 100644
 --- a/chrome/browser/ui/webui/stead_chat/stead_chat_ui.h
 +++ b/chrome/browser/ui/webui/stead_chat/stead_chat_ui.h
 @@ -5,10 +5,12 @@
@@ -7659,7 +7663,7 @@ index 2db14f4..920a0f1 100644
  
  class SteadChatUI;
  
-@@ -23,13 +25,19 @@ class SteadChatUIConfig : public content::DefaultWebUIConfig<SteadChatUI> {
+@@ -23,13 +25,19 @@ class SteadChatUIConfig : public content
  
  // Full-page Stead chat. Serves the same SvelteKit SPA bundle as the sidebar
  // (stead_sidebar_resources.pak), opened at the /ai-chat route.
@@ -7680,8 +7684,6 @@ index 2db14f4..920a0f1 100644
  };
  
  #endif  // CHROME_BROWSER_UI_WEBUI_STEAD_CHAT_STEAD_CHAT_UI_H_
-diff --git a/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.cc b/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.cc
-index 3389a32..600036a 100644
 --- a/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.cc
 +++ b/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.cc
 @@ -4,7 +4,10 @@
@@ -7704,7 +7706,7 @@ index 3389a32..600036a 100644
    content::BrowserContext* browser_context =
        web_ui->GetWebContents()->GetBrowserContext();
    Profile* profile = Profile::FromBrowserContext(browser_context);
-@@ -44,3 +47,11 @@ SteadNewTabUI::SteadNewTabUI(content::WebUI* web_ui)
+@@ -44,3 +47,11 @@ SteadNewTabUI::SteadNewTabUI(content::We
  }
  
  SteadNewTabUI::~SteadNewTabUI() = default;
@@ -7716,8 +7718,6 @@ index 3389a32..600036a 100644
 +}
 +
 +WEB_UI_CONTROLLER_TYPE_IMPL(SteadNewTabUI)
-diff --git a/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.h b/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.h
-index 6e69dc1..5f722cc 100644
 --- a/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.h
 +++ b/chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.h
 @@ -5,10 +5,12 @@
@@ -7734,7 +7734,7 @@ index 6e69dc1..5f722cc 100644
  
  class SteadNewTabUI;
  
-@@ -23,13 +25,19 @@ class SteadNewTabUIConfig : public content::DefaultWebUIConfig<SteadNewTabUI> {
+@@ -23,13 +25,19 @@ class SteadNewTabUIConfig : public conte
  };
  
  // Serves the shared Stead WebUI SPA bundle, opened at the /new-tab route.
@@ -7755,18 +7755,22 @@ index 6e69dc1..5f722cc 100644
  };
  
  #endif  // CHROME_BROWSER_UI_WEBUI_STEAD_NEWTAB_STEAD_NEWTAB_UI_H_
-diff --git a/components/javascript_dialogs/tab_modal_dialog_manager.cc b/components/javascript_dialogs/tab_modal_dialog_manager.cc
-index b275a7050d5c3..6ac34da172054 100644
 --- a/components/javascript_dialogs/tab_modal_dialog_manager.cc
 +++ b/components/javascript_dialogs/tab_modal_dialog_manager.cc
-@@ -35,3 +35,6 @@ TabModalDialogManager::~TabModalDialogManager() {
+@@ -34,6 +34,9 @@ AppModalDialogManager* GetAppModalDialog
+ 
  TabModalDialogManager::~TabModalDialogManager() {
    CloseDialog(DismissalCause::kTabHelperDestroyed, false, std::u16string());
 +  for (Observer& observer : observers_) {
 +    observer.OnTabModalDialogManagerDestroyed(this);
 +  }
  }
-@@ -50,2 +53,10 @@ void TabModalDialogManager::SetDialogShownCallbackForTesting(
+ 
+ void TabModalDialogManager::BrowserActiveStateChanged() {
+@@ -47,6 +50,14 @@ void TabModalDialogManager::CloseDialogW
+   CloseDialog(reason, false, std::u16string());
+ }
+ 
 +void TabModalDialogManager::AddObserver(Observer* observer) {
 +  observers_.AddObserver(observer);
 +}
@@ -7777,7 +7781,11 @@ index b275a7050d5c3..6ac34da172054 100644
 +
  void TabModalDialogManager::SetDialogShownCallbackForTesting(
      base::OnceClosure callback) {
-@@ -208,1 +219,8 @@ void TabModalDialogManager::RunJavaScriptDialog(
+   dialog_shown_ = std::move(callback);
+@@ -205,6 +216,13 @@ void TabModalDialogManager::RunJavaScrip
+   // was doing, but now the user can just close the page.
+   *did_suppress_message = false;
+ 
 +  for (Observer& observer : observers_) {
 +    observer.OnJavaScriptDialogShown(
 +        alerting_web_contents, render_frame_host, dialog_type,
@@ -7786,7 +7794,12 @@ index b275a7050d5c3..6ac34da172054 100644
 +  }
 +
    if (!dialog_shown_.is_null())
-@@ -337,1 +355,8 @@ void TabModalDialogManager::CloseDialog(DismissalCause cause,
+     std::move(dialog_shown_).Run();
+ }
+@@ -334,6 +352,13 @@ void TabModalDialogManager::CloseDialog(
+ 
+   LogDialogDismissalCause(cause);
+ 
 +  content::WebContents* observed_web_contents = web_contents();
 +  for (Observer& observer : observers_) {
 +    observer.OnJavaScriptDialogClosed(observed_web_contents, dialog_type_,
@@ -7795,8 +7808,8 @@ index b275a7050d5c3..6ac34da172054 100644
 +  }
 +
    // CloseDialog() can be called two ways. It can be called from within
-diff --git a/components/javascript_dialogs/tab_modal_dialog_manager.h b/components/javascript_dialogs/tab_modal_dialog_manager.h
-index 4fdf256f3148e..1d7570525a4c4 100644
+   // TabModalDialogManager, in which case the dialog needs to be closed.
+   // However, it can also be called, bound, from the JavaScriptDialog. In that
 --- a/components/javascript_dialogs/tab_modal_dialog_manager.h
 +++ b/components/javascript_dialogs/tab_modal_dialog_manager.h
 @@ -7,9 +7,13 @@
@@ -7813,7 +7826,7 @@ index 4fdf256f3148e..1d7570525a4c4 100644
  #include "build/build_config.h"
  #include "components/javascript_dialogs/tab_modal_dialog_manager_delegate.h"
  #include "components/javascript_dialogs/tab_modal_dialog_view.h"
-@@ -96,6 +100,25 @@
+@@ -96,6 +100,25 @@ class TabModalDialogManager
      kMaxValue = kSuppressedByOtherDialog,
    };
  
@@ -7839,7 +7852,7 @@ index 4fdf256f3148e..1d7570525a4c4 100644
    TabModalDialogManager(const TabModalDialogManager&) = delete;
    TabModalDialogManager& operator=(const TabModalDialogManager&) = delete;
  
-@@ -104,6 +127,9 @@
+@@ -104,6 +127,9 @@ class TabModalDialogManager
    void BrowserActiveStateChanged();
    void CloseDialogWithReason(DismissalCause reason);
  
@@ -7849,7 +7862,7 @@ index 4fdf256f3148e..1d7570525a4c4 100644
    void SetDialogShownCallbackForTesting(base::OnceClosure callback);
    bool IsShowingDialogForTesting() const;
    void ClickDialogButtonForTesting(bool accept,
-@@ -198,6 +224,8 @@
+@@ -198,6 +224,8 @@ class TabModalDialogManager
    // A closure to be fired when a dialog is dismissed. For testing only.
    DialogDismissedCallback dialog_dismissed_;
  

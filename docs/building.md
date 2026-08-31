@@ -69,37 +69,41 @@ Once it's complete, a `.dmg` should appear in `build/`.
 
 ## Development build and environment
 
-Make sure your system meets the [requirements](#software-requirements)
-and that you've installed all [dependencies](#build-dependencies).
-
-On top of basic dependencies, you'll need quilt to create/update patches:
-```sh
-brew install quilt
-```
+The development command checks the [requirements](#software-requirements) and
+[dependencies](#build-dependencies) before changing the source tree. To inspect
+your machine without setting anything up, run `./st doctor`. It reports every
+missing dependency and the command to install it. Development also requires Bun
+for the bundled sidebar UI and Quilt for the Chromium patch stack.
 
 ### Basics
 
-1. Load the dev util script:
+1. Set up the complete development environment:
     ```sh
-    source dev.sh
+    ./st setup
     ```
 
-2. Setup the dev environment fully for the first time:
+2. Build and run Stead with a dedicated development data directory:
     ```sh
-    he setup
+    ./st run
     ```
 
-3. Build your first development binary:
-    ```sh
-    he build
-    ```
+`setup` initializes Git submodules, builds and installs the sidebar resources,
+downloads Chromium, applies the patch stack, and generates the build files. If
+source preparation or patching is interrupted, running it again resumes from the
+prepared source tree. If setup is already complete, it is a no-op in scripts and
+asks before recreating it in an interactive terminal. Use `./st setup --force`
+to recreate it explicitly.
 
-4. Run the development build with a dedicated data dir:
-    ```sh
-    he run
-    ```
+If setup reports that a Stead patch does not apply, the patch has drifted from
+the Chromium version in the repository; installing another local dependency
+will not fix it. The source tree is preserved so you can update the repository
+and rerun `./st setup`. Contributors repairing the patch can do so in
+`build/src` with Quilt and then run the same command to continue. Use `--force`
+only when you intentionally want a fresh Chromium tree.
 
-5. Done! You have your own home-grown Stead ready for tinkering.
+`run` refreshes generated resources and builds before launching. `./st build`
+is still available for compile-only checks and CI, while `./st run --no-build`
+launches the existing binary without compiling.
 
 ### Creating a new patch
 
@@ -128,26 +132,25 @@ brew install quilt
 
 6. Unmerge the patch series:
     ```sh
-    he unmerge
+    ./st unmerge
     ```
 
 7. Commit the patch & series change to a new branch and make a PR!
 
-#### Dev util help menu
-To see all commands available in `dev.sh`, just run `he`.
+#### Dev command help
+Run `./st help` to see all available commands.
+
+The old `he` command means **Helium**, the upstream browser this tooling came
+from. It remains available after `source dev.sh` for compatibility, and `./dev`
+also remains as a deprecated alias. New instructions use `./st`.
 
 #### quilt manual
 Confused about quilt? Run ```man quilt``` to read more about its functionality.
 
 ### Updating for a new Chromium release
-1. Load the dev util script:
-    ```sh
-    source dev.sh
-    ```
-
 1. Download sources, set up GN, and prepare third-party dependencies:
     ```sh
-    he presetup
+    ./st presetup
     ```
 
 1. Switch to src directory
@@ -165,13 +168,12 @@ Confused about quilt? Run ```man quilt``` to read more about its functionality.
     3. Refresh the patch: `quilt refresh`
     4. Go back to Step 5.
 
-1. After all patches are fixed, run `he version && he configure` to finish build env setup.
-1. Build and run Stead to verify that everything functions as intended: `he build && he run`
-1. Run `he validate config` and resolve the error if it occurs.
-1. Run `he pop` to pop all applied patches.
-1. Validate that patches are applied correctly: `he validate config`
-1. Unmerge main and platform patches: `he unmerge`
+1. After all patches are fixed, run `./st configure` to finish build env setup.
+1. Build and run Stead to verify that everything functions as intended: `./st run`
+1. Run `./st validate config` and resolve the error if it occurs.
+1. Run `./st pop` to pop all applied patches.
+1. Validate that patches are applied correctly: `./st validate config`
+1. Unmerge main and platform patches: `./st unmerge`
 1. Ensure that patches and series are formatted correctly, e.g. no blank lines.
-1. Check the consistency of the series file: `he validate series`
+1. Check the consistency of the series file: `./st validate series`
 1. Use git to add changes and commit. Refer to recent commit history for an appropriate commit comment.
-
