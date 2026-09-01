@@ -1,0 +1,46 @@
+--- a/chrome/app/settings_strings.grdp
++++ b/chrome/app/settings_strings.grdp
+@@ -2279,6 +2279,9 @@
+     <message name="IDS_SETTINGS_RESET_SETTINGS_TRIGGER" desc="The label describing the 'reset profile setting' feature">
+       Restore settings to their original defaults
+     </message>
++    <message name="IDS_SETTINGS_REPLAY_ONBOARDING" desc="The label for a link that opens the browser onboarding flow again in the current tab">
++      Replay onboarding/setup
++    </message>
+     <message name="IDS_SETTINGS_RESET_AUTOMATED_DIALOG_TITLE" desc="The title of the dialog informing the user that automated resetting of some settings occurred.">
+       Some settings were reset
+     </message>
+--- a/chrome/browser/resources/settings/reset_page/reset_page.html
++++ b/chrome/browser/resources/settings/reset_page/reset_page.html
+@@ -3,6 +3,8 @@
+     class="cr-centered-card-container">
+   <cr-link-row id="resetProfile" label="$i18n{resetTrigger}"
+       on-click="onShowResetProfileDialog_"></cr-link-row>
++  <cr-link-row id="replayOnboarding" label="$i18n{replayOnboarding}"
++      on-click="onReplayOnboardingClick_"></cr-link-row>
+   <!-- Keep a single instance of reset-profile-dialog on purpose, to
+     preserve state across show/hide operations. -->
+   <cr-lazy-render id="resetProfileDialog">
+--- a/chrome/browser/resources/settings/reset_page/reset_page.ts
++++ b/chrome/browser/resources/settings/reset_page/reset_page.ts
+@@ -67,6 +67,10 @@ export class SettingsResetPageElement ex
+         routes.RESET_DIALOG, new URLSearchParams('origin=userclick'));
+   }
+ 
++  private onReplayOnboardingClick_() {
++    window.location.href = 'stead://setup/';
++  }
++
+   private onResetProfileDialogClose_() {
+     Router.getInstance().navigateTo(routes.RESET_DIALOG.parent!);
+     focusWithoutInk(this.$.resetProfile);
+--- a/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
++++ b/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
+@@ -999,6 +999,7 @@ void AddResetStrings(content::WebUIDataS
+   static constexpr webui::LocalizedString kLocalizedStrings[] = {
+       {"resetPageTitle", IDS_SETTINGS_RESET},
+       {"resetTrigger", IDS_SETTINGS_RESET_SETTINGS_TRIGGER},
++      {"replayOnboarding", IDS_SETTINGS_REPLAY_ONBOARDING},
+       {"resetPageExplanation", IDS_RESET_PROFILE_SETTINGS_EXPLANATION},
+       {"resetPageExplanationBulletPoints",
+        IDS_RESET_PROFILE_SETTINGS_EXPLANATION_IN_BULLET_POINTS},
