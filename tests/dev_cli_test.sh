@@ -241,7 +241,8 @@ test_setup_patch_state_stays_out_of_git() (
   trap 'rm -rf "$fixture_root"' EXIT
 
   mkdir -p "$fixture_root/devutils" "$fixture_root/patches/helium/macos" \
-    "$fixture_root/patches/stead"
+    "$fixture_root/patches/rebel/macos" "$fixture_root/patches/stead" \
+    "$fixture_root/patches/ungoogled-chromium/macos"
   cp "$repo_root/.gitignore" "$fixture_root/.gitignore"
   cp "$repo_root/devutils/update_patches.sh" "$fixture_root/devutils/update_patches.sh"
   ln -s "$repo_root/helium-chromium" "$fixture_root/helium-chromium"
@@ -277,7 +278,7 @@ test_setup_patch_state_stays_out_of_git() (
   [ -z "$status" ] || fail "setup polluted Git status: $status"
 
   mv "$_setup_marker" "$_out_dir/.interrupted-setup"
-  mv "$fixture_root/patches/series" "$fixture_root/patches/series.interrupted"
+  mv "$fixture_root/patches/series" "$_out_dir/series.interrupted"
   stead_cli setup >/dev/null
 
   status="$(git -C "$fixture_root" status --short --untracked-files=all)"
@@ -285,11 +286,15 @@ test_setup_patch_state_stays_out_of_git() (
 
   printf 'stead/new.patch\n' >> "$fixture_root/patches/series"
   printf 'platform edit\n' >> "$fixture_root/patches/helium/macos/local.patch"
+  printf 'new Helium platform patch\n' > "$fixture_root/patches/helium/macos/new.patch"
+  printf 'new Rebel platform patch\n' > "$fixture_root/patches/rebel/macos/new.patch"
   printf 'user edit\n' >> "$fixture_root/patches/stead/local.patch"
   printf 'new Stead patch\n' > "$fixture_root/patches/stead/new.patch"
+  printf 'new ungoogled platform patch\n' \
+    > "$fixture_root/patches/ungoogled-chromium/macos/new.patch"
   status="$(git -C "$fixture_root" status --short --untracked-files=all)"
-  expected=$' M patches/helium/macos/local.patch\n M patches/series\n M patches/stead/local.patch\n?? patches/stead/new.patch'
-  [ "$status" = "$expected" ] || fail "generated-file protection hid Stead patch work: $status"
+  expected=$' M patches/helium/macos/local.patch\n M patches/series\n M patches/stead/local.patch\n?? patches/helium/macos/new.patch\n?? patches/rebel/macos/new.patch\n?? patches/stead/new.patch\n?? patches/ungoogled-chromium/macos/new.patch'
+  [ "$status" = "$expected" ] || fail "generated-file protection hid patch source work: $status"
 )
 
 test_help_is_an_explicit_command() (

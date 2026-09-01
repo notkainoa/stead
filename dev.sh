@@ -404,7 +404,7 @@ ___helium_setup() {
         if [ ! -e "$_root_dir/patches/series" ] &&
             [ -f "$_root_dir/patches/series.orig" ]; then
             # Repair generated state left by the old destructive merge flow.
-            "$_root_dir/devutils/update_patches.sh" merge
+            cp "$_root_dir/patches/series.orig" "$_root_dir/patches/series"
         fi
     else
         "$_root_dir/devutils/update_patches.sh" merge
