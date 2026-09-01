@@ -93,7 +93,16 @@
    if (base::TimeTicks::Now() - last->second >= kDrivingIdleTimeout) {
      ClearTabDriving(tab_id);
    }
-@@ -6273,4 +6318,5 @@ void SteadAgentControlService::OnNavigationCommitted(
+@@ -6264,13 +6309,14 @@ void SteadAgentControlService::OnNavigationCommitted(
+   if (!navigation_handle->HasCommitted()) {
+     return;
+   }
+ 
+   const bool same_document = navigation_handle->IsSameDocument();
+   std::string frame_token;
+   content::RenderFrameHost* frame = navigation_handle->GetRenderFrameHost();
+   if (frame) {
+     frame_token = frame->GetAXTreeID().ToString();
    }
    browser_control_->InvalidateSnapshotForTab(tab_id);
 +  browser_control_->EnsureAgentOwnedTabLocked(tab_id);

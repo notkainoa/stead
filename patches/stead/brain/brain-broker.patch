@@ -23,7 +23,7 @@ index 5d1bb0f28ecaa..cd4506fd0c12 100644
 +                                         SteadSidebarUI, SteadChatUI,
 +                                         SteadNewTabUI>(map);
    RegisterWebUIControllerInterfaceBinder<
-@@ -615,5 +619,14 @@ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
+@@ -615,4 +619,10 @@ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
 -  registry.ForWebUI<SteadSidebarUI>().Add<stead::mojom::ControlConsole>();
 -  registry.ForWebUI<SteadChatUI>().Add<stead::mojom::ControlConsole>();
 -  registry.ForWebUI<SteadNewTabUI>().Add<stead::mojom::ControlConsole>();
@@ -442,7 +442,7 @@ new file mode 100644
 index 0000000000000..71246ae8e56d
 --- /dev/null
 +++ b/chrome/browser/ui/stead/brain/stead_brain_service.cc
-@@ -0,0 +1,1438 @@
+@@ -0,0 +1,1455 @@
 +// Copyright 2026 The Stead Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
