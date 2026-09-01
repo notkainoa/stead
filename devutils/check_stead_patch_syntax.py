@@ -82,19 +82,11 @@ def main() -> int:
         print("The committed patch series was not found.", file=sys.stderr)
         return 1
 
-    series_files = [series_file]
-    merged_series_file = patches_dir / "series.merged"
-    if merged_series_file.is_file():
-        series_files.append(merged_series_file)
-
     patch_names = []
-    for current_series_file in series_files:
-        for raw_line in current_series_file.read_text(
-            encoding="utf-8"
-        ).splitlines():
-            patch_name = raw_line.strip()
-            if patch_name.startswith("stead/") and patch_name not in patch_names:
-                patch_names.append(patch_name)
+    for raw_line in series_file.read_text(encoding="utf-8").splitlines():
+        patch_name = raw_line.strip()
+        if patch_name.startswith("stead/"):
+            patch_names.append(patch_name)
 
     checked = 0
     for patch_name in patch_names:

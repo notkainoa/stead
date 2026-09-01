@@ -89,6 +89,21 @@ class CheckSteadPatchSyntaxTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Malformed Stead patch", result.stderr)
 
+    def test_ignores_entries_only_in_generated_series(self):
+        result = self.run_check(
+            """diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-before
++after
+""",
+            merged_series_text="stead/test/removed.patch\n",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Validated 1 Stead patches.", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
