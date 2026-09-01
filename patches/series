@@ -23,6 +23,7 @@ helium/macos/native-translation-context-option.patch
 stead/sdk/xcode-27-seatbelt.patch
 
 stead/branding/rebrand-to-stead.patch
+stead/branding/rebrand-onboarding-copy.patch
 stead/branding/rebrand-password-manager-to-stead-vault.patch
 stead/branding/rebrand-password-generated-strings-to-stead-vault.patch
 stead/branding/rebrand-password-ui-remaining-strings-to-stead-vault.patch
