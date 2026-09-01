@@ -148,7 +148,7 @@ test_force_recreates_a_completed_setup() (
 
   stead_cli setup --force >/dev/null
 
-  expected=$'preflight\nsubmodules\npatches\nresources\nclean\npresetup\nmerge\nquilt\nconfigure'
+  expected=$'preflight\npatches\nsubmodules\nresources\nclean\npresetup\nmerge\nquilt\nconfigure'
   actual="$(<"$STEAD_TEST_LOG")"
   [ "$actual" = "$expected" ] || fail "forced setup ran the wrong sequence: $actual"
   [ -f "$_setup_marker" ] || fail "forced setup did not write its completion marker"

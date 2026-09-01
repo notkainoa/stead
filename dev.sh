@@ -384,8 +384,8 @@ ___helium_setup() {
     # Nothing below this point should run unless every external dependency is
     # available. This keeps a failed preflight safe to retry.
     ___stead_preflight
-    ___stead_prepare_submodules
     ___stead_validate_patch_syntax
+    ___stead_prepare_submodules
     ___stead_sync_resources
 
     if [ "$recreate" -eq 1 ]; then

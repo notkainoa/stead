@@ -9,7 +9,7 @@ class CheckSteadPatchSyntaxTest(unittest.TestCase):
         self.repo_root = Path(__file__).resolve().parents[2]
         self.script = self.repo_root / "devutils/check_stead_patch_syntax.py"
 
-    def run_check(self, patch_text: str):
+    def run_check(self, patch_text: str, merged_series_text=None):
         with tempfile.TemporaryDirectory() as tmpdirname:
             fixture_root = Path(tmpdirname)
             patch_dir = fixture_root / "patches/stead/test"
@@ -20,6 +20,10 @@ class CheckSteadPatchSyntaxTest(unittest.TestCase):
             (patch_dir / "example.patch").write_text(
                 patch_text, encoding="utf-8"
             )
+            if merged_series_text is not None:
+                (fixture_root / "patches/series.merged").write_text(
+                    merged_series_text, encoding="utf-8"
+                )
             return subprocess.run(
                 ["python3", str(self.script), str(fixture_root)],
                 capture_output=True,
@@ -69,6 +73,21 @@ class CheckSteadPatchSyntaxTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("declares old=1, new=1", result.stderr)
         self.assertIn("contains old=1, new=2", result.stderr)
+
+    def test_checks_committed_series_when_generated_series_is_stale(self):
+        result = self.run_check(
+            """diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1,2 +1,2 @@
+-before
++after
+""",
+            merged_series_text="",
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Malformed Stead patch", result.stderr)
 
 
 if __name__ == "__main__":

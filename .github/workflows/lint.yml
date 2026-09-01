@@ -15,5 +15,7 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.14'
+    - run: python3 -m unittest devutils.tests.test_check_stead_patch_syntax
+    - run: bash tests/dev_cli_test.sh
     - run: python3 devutils/check_stead_patch_syntax.py
     - run: ./helium-chromium/devutils/lint.py -t .
