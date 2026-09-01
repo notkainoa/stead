@@ -10,3 +10,11 @@ build/
 .pc
 
 resources/generated/
+
+# ./st setup expands the upstream patch stack here for Quilt. Only the Stead
+# patch sources and their committed ordering belong in Git. Already tracked
+# platform patches remain visible because ignore rules never hide tracked files.
+patches/*
+!patches/series
+!patches/stead/
+!patches/stead/**

@@ -236,6 +236,62 @@ test_fully_applied_patch_stack_is_success() (
   [ -f "$_setup_marker" ] || fail "setup did not complete after recognizing the patch stack"
 )
 
+test_setup_patch_state_stays_out_of_git() (
+  fixture_root="$(mktemp -d /tmp/stead-dev-test.XXXXXX)"
+  trap 'rm -rf "$fixture_root"' EXIT
+
+  mkdir -p "$fixture_root/devutils" "$fixture_root/patches/helium/macos" \
+    "$fixture_root/patches/stead"
+  cp "$repo_root/.gitignore" "$fixture_root/.gitignore"
+  cp "$repo_root/devutils/update_patches.sh" "$fixture_root/devutils/update_patches.sh"
+  ln -s "$repo_root/helium-chromium" "$fixture_root/helium-chromium"
+  printf 'stead/local.patch\n' > "$fixture_root/patches/series"
+  printf 'tracked platform patch\n' > "$fixture_root/patches/helium/macos/local.patch"
+  printf 'tracked Stead patch\n' > "$fixture_root/patches/stead/local.patch"
+
+  git -C "$fixture_root" init -q
+  git -C "$fixture_root" config user.name "Stead test"
+  git -C "$fixture_root" config user.email "stead-test@example.invalid"
+  git -C "$fixture_root" add .
+  git -C "$fixture_root" add -f patches/helium/macos/local.patch
+  git -C "$fixture_root" commit -qm baseline
+
+  # shellcheck source=../dev.sh
+  source "$repo_root/dev.sh"
+  _root_dir="$fixture_root"
+  _src_dir="$fixture_root/build/src"
+  _out_dir="$_src_dir/out/Default"
+  _setup_marker="$_out_dir/.stead-setup-complete"
+  _presetup_marker="$_out_dir/.stead-presetup-complete"
+
+  ___stead_preflight() { :; }
+  ___stead_prepare_submodules() { :; }
+  ___stead_sync_resources() { :; }
+  ___helium_setup_presetup() { mkdir -p "$_out_dir"; }
+  ___stead_patch_stack_is_fully_applied() { return 0; }
+  ___helium_configure() { :; }
+
+  stead_cli setup >/dev/null
+
+  status="$(git -C "$fixture_root" status --short --untracked-files=all)"
+  [ -z "$status" ] || fail "setup polluted Git status: $status"
+
+  mv "$_setup_marker" "$_out_dir/.interrupted-setup"
+  mv "$fixture_root/patches/series" "$fixture_root/patches/series.interrupted"
+  stead_cli setup >/dev/null
+
+  status="$(git -C "$fixture_root" status --short --untracked-files=all)"
+  [ -z "$status" ] || fail "setup retry did not repair patch state: $status"
+
+  printf 'stead/new.patch\n' >> "$fixture_root/patches/series"
+  printf 'platform edit\n' >> "$fixture_root/patches/helium/macos/local.patch"
+  printf 'user edit\n' >> "$fixture_root/patches/stead/local.patch"
+  printf 'new Stead patch\n' > "$fixture_root/patches/stead/new.patch"
+  status="$(git -C "$fixture_root" status --short --untracked-files=all)"
+  expected=$' M patches/helium/macos/local.patch\n M patches/series\n M patches/stead/local.patch\n?? patches/stead/new.patch'
+  [ "$status" = "$expected" ] || fail "generated-file protection hid Stead patch work: $status"
+)
+
 test_help_is_an_explicit_command() (
   # shellcheck source=../dev.sh
   source "$repo_root/dev.sh"
@@ -268,4 +324,5 @@ run_test test_force_recreates_a_completed_setup
 run_test test_run_builds_before_launching
 run_test test_patch_failure_is_resumable
 run_test test_fully_applied_patch_stack_is_success
+run_test test_setup_patch_state_stays_out_of_git
 run_test test_help_is_an_explicit_command
