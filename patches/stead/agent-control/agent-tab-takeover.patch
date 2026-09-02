@@ -83,7 +83,15 @@
  mojom::AxNodePtr SteadAgentControlService::PrivateBrowserControl::BuildAxNode(
      const FrameSnapshotSource& source,
      ui::AXNode* node,
-@@ -5821,6 +5862,9 @@ void SteadAgentControlService::CheckDriv
+@@ -5530,6 +5571,7 @@ void SteadAgentControlService::OnNavigationCommitted(
+     frame_token = frame->GetAXTreeID().ToString();
+   }
+   browser_control_->InvalidateSnapshotForTab(tab_id);
++  browser_control_->EnsureAgentOwnedTabLocked(tab_id);
+
+   const int32_t originating_action_id = PeekPendingActionForTab(tab_id);
+   const TabEventState event_state = browser_control_->GetTabEventState(tab_id);
+@@ -5821,6 +5863,9 @@ void SteadAgentControlService::CheckDriv
    if (last == last_drive_action_by_tab_.end()) {
      return;
    }
@@ -93,18 +101,3 @@
    if (base::TimeTicks::Now() - last->second >= kDrivingIdleTimeout) {
      ClearTabDriving(tab_id);
    }
-@@ -6264,13 +6309,14 @@ void SteadAgentControlService::OnNavigationCommitted(
-   if (!navigation_handle->HasCommitted()) {
-     return;
-   }
- 
-   const bool same_document = navigation_handle->IsSameDocument();
-   std::string frame_token;
-   content::RenderFrameHost* frame = navigation_handle->GetRenderFrameHost();
-   if (frame) {
-     frame_token = frame->GetAXTreeID().ToString();
-   }
-   browser_control_->InvalidateSnapshotForTab(tab_id);
-+  browser_control_->EnsureAgentOwnedTabLocked(tab_id);
- 
-   const int32_t originating_action_id = PeekPendingActionForTab(tab_id);
