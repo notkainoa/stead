@@ -10,3 +10,20 @@ build/
 .pc
 
 resources/generated/
+
+# ./st setup expands Helium's patch stack here for Quilt. Keep its generated
+# copies out of Git without hiding platform and Stead patch source directories.
+patches/series.merged
+patches/series.orig
+patches/series.prepend
+patches/brave/
+patches/bromite/
+patches/debian/
+patches/helium/core/
+patches/helium/hop/
+patches/helium/settings/
+patches/helium/ui/
+patches/inox-patchset/
+patches/iridium-browser/
+patches/ungoogled-chromium/*.patch
+patches/upstream-fixes/

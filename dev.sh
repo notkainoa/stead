@@ -406,6 +406,11 @@ ___helium_setup() {
 
     if ___stead_patch_series_is_merged; then
         echo "Merged patch series found; resuming patch application."
+        if [ ! -e "$_root_dir/patches/series" ] &&
+            [ -f "$_root_dir/patches/series.orig" ]; then
+            # Repair generated state left by the old destructive merge flow.
+            cp "$_root_dir/patches/series.orig" "$_root_dir/patches/series"
+        fi
     else
         "$_root_dir/devutils/update_patches.sh" merge
     fi
