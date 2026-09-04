@@ -1,0 +1,1031 @@
+Index: src/chrome/browser/ui/bookmarks/BUILD.gn
+===================================================================
+--- src.orig/chrome/browser/ui/bookmarks/BUILD.gn
++++ src/chrome/browser/ui/bookmarks/BUILD.gn
+@@ -19,6 +19,7 @@ source_set("bookmarks") {
+     "bookmark_utils.h",
+     "bookmark_utils_desktop.h",
+     "recently_used_folders_combo_model.h",
++    "stead_sidebar_bookmark_utils.h",
+     "test_bookmark_navigation_wrapper.h",
+   ]
+ 
+@@ -58,6 +59,7 @@ source_set("impl") {
+     "bookmark_utils.cc",
+     "bookmark_utils_desktop.cc",
+     "recently_used_folders_combo_model.cc",
++    "stead_sidebar_bookmark_utils.cc",
+     "test_bookmark_navigation_wrapper.cc",
+   ]
+ 
+Index: src/chrome/browser/ui/bookmarks/recently_used_folders_combo_model.cc
+===================================================================
+--- src.orig/chrome/browser/ui/bookmarks/recently_used_folders_combo_model.cc
++++ src/chrome/browser/ui/bookmarks/recently_used_folders_combo_model.cc
+@@ -12,6 +12,7 @@
+ #include "base/memory/raw_ptr.h"
+ #include "base/metrics/user_metrics.h"
+ #include "base/observer_list.h"
++#include "chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.h"
+ #include "chrome/grit/generated_resources.h"
+ #include "components/bookmarks/browser/bookmark_model.h"
+ #include "components/bookmarks/browser/bookmark_utils.h"
+@@ -56,9 +57,19 @@ RecentlyUsedFoldersComboModel::RecentlyU
+     : bookmark_model_(model), parent_node_(node->parent()) {
+   bookmark_model_->AddObserver(this);
+ 
+-  const bookmarks::BookmarkNodesSplitByAccountAndLocal mru_bookmarks =
++  bookmarks::BookmarkNodesSplitByAccountAndLocal mru_bookmarks =
+       bookmarks::GetMostRecentlyUsedFoldersForDisplay(model, node);
+ 
++  // Sidebar is a first-class destination in the bookmark bubble, even before
++  // it becomes one of Chromium's recently used folders.
++  if (const BookmarkNode* sidebar_folder =
++          EnsureSteadSidebarBookmarkFolder(model);
++      sidebar_folder &&
++      !std::ranges::contains(mru_bookmarks.local_nodes, sidebar_folder)) {
++    mru_bookmarks.local_nodes.insert(mru_bookmarks.local_nodes.begin(),
++                                     sidebar_folder);
++  }
++
+   if (!mru_bookmarks.account_nodes.empty()) {
+     const bool show_labels = !mru_bookmarks.local_nodes.empty();
+ 
+Index: src/chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.cc
+===================================================================
+--- /dev/null
++++ src/chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.cc
+@@ -0,0 +1,36 @@
++// Copyright 2026 The Stead Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.h"
++
++#include "components/bookmarks/browser/bookmark_model.h"
++#include "components/bookmarks/browser/bookmark_node.h"
++
++const bookmarks::BookmarkNode* FindSteadSidebarBookmarkFolder(
++    const bookmarks::BookmarkModel* model) {
++  if (!model || !model->loaded() || !model->other_node()) {
++    return nullptr;
++  }
++
++  for (const auto& child : model->other_node()->children()) {
++    if (child->is_folder() &&
++        child->GetTitle() == kSteadSidebarBookmarkFolderName) {
++      return child.get();
++    }
++  }
++  return nullptr;
++}
++
++const bookmarks::BookmarkNode* EnsureSteadSidebarBookmarkFolder(
++    bookmarks::BookmarkModel* model) {
++  if (!model || !model->loaded()) {
++    return nullptr;
++  }
++  if (const bookmarks::BookmarkNode* existing =
++          FindSteadSidebarBookmarkFolder(model)) {
++    return existing;
++  }
++  return model->AddFolder(model->other_node(), 0,
++                          kSteadSidebarBookmarkFolderName);
++}
+Index: src/chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.h
+===================================================================
+--- /dev/null
++++ src/chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.h
+@@ -0,0 +1,26 @@
++// Copyright 2026 The Stead Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_BOOKMARKS_STEAD_SIDEBAR_BOOKMARK_UTILS_H_
++#define CHROME_BROWSER_UI_BOOKMARKS_STEAD_SIDEBAR_BOOKMARK_UTILS_H_
++
++namespace bookmarks {
++class BookmarkModel;
++class BookmarkNode;
++}  // namespace bookmarks
++
++inline constexpr char16_t kSteadSidebarBookmarkFolderName[] = u"Sidebar";
++
++// Returns the first folder named "Sidebar" directly under Other Bookmarks.
++// The folder remains an ordinary bookmark folder so bookmark sync, editing,
++// import, and export keep their existing behavior.
++const bookmarks::BookmarkNode* FindSteadSidebarBookmarkFolder(
++    const bookmarks::BookmarkModel* model);
++
++// Creates the Sidebar folder when the bookmark model is ready and no matching
++// folder exists. Returns null while the model is still loading.
++const bookmarks::BookmarkNode* EnsureSteadSidebarBookmarkFolder(
++    bookmarks::BookmarkModel* model);
++
++#endif  // CHROME_BROWSER_UI_BOOKMARKS_STEAD_SIDEBAR_BOOKMARK_UTILS_H_
+Index: src/chrome/browser/ui/views/tabs/vertical/BUILD.gn
+===================================================================
+--- src.orig/chrome/browser/ui/views/tabs/vertical/BUILD.gn
++++ src/chrome/browser/ui/views/tabs/vertical/BUILD.gn
+@@ -14,6 +14,7 @@ source_set("vertical") {
+     "top_container_button.h",
+     "vertical_dragged_tabs_container.h",
+     "vertical_pinned_tab_container_view.h",
++    "vertical_sidebar_bookmarks_view.h",
+     "vertical_split_tab_view.h",
+     "vertical_new_tab_button.h",
+     "vertical_tab_strip_bottom_container.h",
+@@ -51,6 +52,7 @@ source_set("impl") {
+     "vertical_dragged_tabs_container.cc",
+     "vertical_new_tab_button.cc",
+     "vertical_pinned_tab_container_view.cc",
++    "vertical_sidebar_bookmarks_view.cc",
+     "vertical_split_tab_view.cc",
+     "vertical_tab_drag_handler.cc",
+     "vertical_tab_drag_handler.h",
+@@ -82,6 +84,8 @@ source_set("impl") {
+     "//chrome/browser/ui:layout_constants",
+     "//chrome/browser/ui:ui_features",
+     "//chrome/browser/ui/actions:actions_headers",
++    "//chrome/browser/ui/bookmarks",
++    "//chrome/browser/ui/bookmarks:impl",
+     "//chrome/browser/ui/browser_window",
+     "//chrome/browser/ui/color:color_headers",
+     "//chrome/browser/ui/tab_contents",
+@@ -98,6 +102,7 @@ source_set("impl") {
+     "//chrome/browser/ui/views/toolbar",
+     "//components/contextual_tasks/public:feature_list",
+     "//components/performance_manager",
++    "//components/vector_icons",
+   ]
+ 
+   public_deps = [
+Index: src/chrome/browser/ui/views/tabs/vertical/vertical_sidebar_bookmarks_view.cc
+===================================================================
+--- /dev/null
++++ src/chrome/browser/ui/views/tabs/vertical/vertical_sidebar_bookmarks_view.cc
+@@ -0,0 +1,552 @@
++// Copyright 2026 The Stead Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/tabs/vertical/vertical_sidebar_bookmarks_view.h"
++
++#include <memory>
++#include <string>
++
++#include "base/check.h"
++#include "base/functional/bind.h"
++#include "base/time/time.h"
++#include "cc/paint/paint_flags.h"
++#include "chrome/app/vector_icons/vector_icons.h"
++#include "chrome/browser/bookmarks/bookmark_model_factory.h"
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/ui/bookmarks/stead_sidebar_bookmark_utils.h"
++#include "chrome/browser/ui/layout_constants.h"
++#include "chrome/browser/ui/tabs/tab_enums.h"
++#include "chrome/browser/ui/tabs/tab_strip_model.h"
++#include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
++#include "chrome/browser/ui/views/tabs/tab/tab_close_button.h"
++#include "chrome/browser/ui/views/tabs/tab_style_views.h"
++#include "components/bookmarks/browser/bookmark_model.h"
++#include "components/bookmarks/browser/bookmark_node.h"
++#include "components/vector_icons/vector_icons.h"
++#include "content/public/browser/web_contents.h"
++#include "ui/accessibility/ax_enums.mojom-shared.h"
++#include "ui/base/models/image_model.h"
++#include "ui/color/color_id.h"
++#include "ui/events/event.h"
++#include "ui/gfx/canvas.h"
++#include "ui/gfx/favicon_size.h"
++#include "ui/views/accessibility/view_accessibility.h"
++#include "ui/views/controls/button/button.h"
++#include "ui/views/controls/button/image_button.h"
++#include "ui/views/controls/focus_ring.h"
++#include "ui/views/controls/highlight_path_generator.h"
++#include "ui/views/controls/image_view.h"
++#include "ui/views/controls/label.h"
++#include "ui/views/layout/flex_layout.h"
++#include "ui/views/style/typography.h"
++#include "ui/views/view_class_properties.h"
++#include "ui/views/widget/widget.h"
++
++namespace {
++
++constexpr int kHeaderHeight = 28;
++constexpr int kHeaderIconSize = 16;
++constexpr int kRowHorizontalInset = 7;
++constexpr int kRowChildSpacing = 7;
++constexpr char16_t kBookmarksSectionTitle[] = u"Bookmarks";
++
++bool IsButtonHovered(const views::Button* button) {
++  return button->GetState() == views::Button::STATE_HOVERED ||
++         button->GetState() == views::Button::STATE_PRESSED;
++}
++
++}  // namespace
++
++class VerticalSidebarBookmarksView::BookmarkRow : public views::Button {
++ public:
++  BookmarkRow(VerticalSidebarBookmarksView* owner,
++              const bookmarks::BookmarkNode* bookmark)
++      : views::Button(
++            base::BindRepeating(&VerticalSidebarBookmarksView::ActivateOrOpen,
++                                base::Unretained(owner),
++                                bookmark)),
++        owner_(owner),
++        bookmark_(bookmark),
++        tab_style_(TabStyle::Get()) {
++    SetNotifyEnterExitOnChild(true);
++    SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
++    SetAnimationDuration(base::Milliseconds(80));
++    SetPreferredSize(
++        gfx::Size(-1, GetLayoutConstant(LayoutConstant::kVerticalTabHeight)));
++
++    auto* layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
++    layout->SetOrientation(views::LayoutOrientation::kHorizontal)
++        .SetCrossAxisAlignment(views::LayoutAlignment::kCenter)
++        .SetInteriorMargin(gfx::Insets::VH(0, kRowHorizontalInset))
++        .SetDefault(views::kMarginsKey,
++                    gfx::Insets().set_right(kRowChildSpacing));
++
++    favicon_ = AddChildView(std::make_unique<views::ImageView>());
++    favicon_->SetImageSize(gfx::Size(gfx::kFaviconSize, gfx::kFaviconSize));
++    favicon_->SetCanProcessEventsWithinSubtree(false);
++
++    title_ = AddChildView(std::make_unique<views::Label>(bookmark->GetTitle()));
++    title_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
++    title_->SetTextStyle(views::style::STYLE_BODY_4);
++    title_->SetElideBehavior(gfx::ELIDE_TAIL);
++    title_->SetCanProcessEventsWithinSubtree(false);
++    title_->SetSkipSubpixelRenderingOpacityCheck(true);
++    title_->SetProperty(
++        views::kFlexBehaviorKey,
++        views::FlexSpecification(views::LayoutOrientation::kHorizontal,
++                                 views::MinimumFlexSizeRule::kScaleToZero,
++                                 views::MaximumFlexSizeRule::kUnbounded, true));
++
++    close_button_ = AddChildView(std::make_unique<TabCloseButton>(
++        base::BindRepeating(&VerticalSidebarBookmarksView::CloseOpenTab,
++                            base::Unretained(owner), bookmark),
++        base::BindRepeating(&BookmarkRow::OnCloseButtonMouseEvent,
++                            base::Unretained(this))));
++    close_button_->SetProperty(views::kMarginsKey, gfx::Insets());
++
++    views::FocusRing::Install(this);
++    views::FocusRing::Get(this)->SetOutsetFocusRingDisabled(true);
++    views::HighlightPathGenerator::Install(
++        this, std::make_unique<views::RoundRectHighlightPathGenerator>(
++                  gfx::Insets(),
++                  GetLayoutConstant(LayoutConstant::kVerticalTabCornerRadius)));
++
++    GetViewAccessibility().SetRole(ax::mojom::Role::kTab);
++    UpdateFavicon();
++    UpdateState();
++  }
++
++  ~BookmarkRow() override = default;
++
++  void SetTabStripCollapsed(bool collapsed) {
++    if (tab_strip_collapsed_ == collapsed) {
++      return;
++    }
++    tab_strip_collapsed_ = collapsed;
++    title_->SetVisible(!collapsed);
++    UpdateVisuals();
++    InvalidateLayout();
++  }
++
++  void UpdateFavicon() {
++    const gfx::Image& favicon = owner_->bookmark_model_->GetFavicon(bookmark_);
++    if (favicon.IsEmpty()) {
++      favicon_->SetImage(ui::ImageModel::FromVectorIcon(
++          vector_icons::kGlobeIcon, ui::kColorIcon, gfx::kFaviconSize));
++    } else {
++      favicon_->SetImage(ui::ImageModel::FromImageSkia(favicon.AsImageSkia()));
++    }
++  }
++
++  void UpdateState() {
++    const int open_index = owner_->FindOpenTab(bookmark_);
++    is_open_ = open_index != TabStripModel::kNoTab;
++    is_active_ = is_open_ && owner_->tab_strip_model_ &&
++                 owner_->tab_strip_model_->active_index() == open_index;
++
++    std::u16string accessible_name = bookmark_->GetTitle();
++    accessible_name.append(is_open_ ? u", open tab" : u", closed tab");
++    GetViewAccessibility().SetName(accessible_name);
++    GetViewAccessibility().SetIsSelected(is_active_);
++    UpdateVisuals();
++  }
++
++  const bookmarks::BookmarkNode* bookmark() const { return bookmark_; }
++
++ private:
++  void StateChanged(ButtonState old_state) override {
++    views::Button::StateChanged(old_state);
++    UpdateVisuals();
++  }
++
++  void OnMouseReleased(const ui::MouseEvent& event) override {
++    if (event.IsOnlyMiddleMouseButton() && HitTestPoint(event.location())) {
++      owner_->CloseOpenTab(bookmark_);
++      return;
++    }
++    views::Button::OnMouseReleased(event);
++  }
++
++  void PaintButtonContents(gfx::Canvas* canvas) override {
++    const bool hovered = IsButtonHovered(this);
++    if (is_active_ || hovered) {
++      cc::PaintFlags flags;
++      flags.setAntiAlias(true);
++      flags.setColor(tab_style_->GetCurrentTabBackgroundColor(
++          is_active_ ? TabStyle::TabSelectionState::kActive
++                     : TabStyle::TabSelectionState::kInactive,
++          hovered, hovered ? 1.0 : 0.0,
++          GetWidget() ? GetWidget()->ShouldPaintAsActive() : true,
++          GetColorProvider()));
++      canvas->DrawRoundRect(
++          GetContentsBounds(),
++          GetLayoutConstant(LayoutConstant::kVerticalTabCornerRadius), flags);
++    }
++    views::Button::PaintButtonContents(canvas);
++  }
++
++  void OnThemeChanged() override {
++    views::Button::OnThemeChanged();
++    UpdateVisuals();
++  }
++
++  void OnCloseButtonMouseEvent(views::View* source,
++                               const ui::MouseEvent& event) {
++    if (event.type() == ui::EventType::kMouseReleased &&
++        event.IsMiddleMouseButton()) {
++      owner_->CloseOpenTab(bookmark_);
++    }
++  }
++
++  void UpdateVisuals() {
++    const bool hovered = IsButtonHovered(this);
++    const TabStyle::TabSelectionState selection_state =
++        is_active_ ? TabStyle::TabSelectionState::kActive
++                   : TabStyle::TabSelectionState::kInactive;
++    TabStyle::TabColors colors = tab_style_->CalculateTargetColors(
++        selection_state, is_active_, hovered,
++        GetWidget() ? GetWidget()->ShouldPaintAsActive() : true,
++        GetColorProvider());
++    title_->SetEnabledColor(colors.foreground_color);
++    close_button_->SetColors(colors);
++    close_button_->SetVisible(is_open_ && !tab_strip_collapsed_ &&
++                              (is_active_ || hovered));
++    SchedulePaint();
++  }
++
++  raw_ptr<VerticalSidebarBookmarksView> owner_;
++  raw_ptr<const bookmarks::BookmarkNode> bookmark_;
++  raw_ptr<const TabStyle> tab_style_;
++  raw_ptr<views::ImageView> favicon_ = nullptr;
++  raw_ptr<views::Label> title_ = nullptr;
++  raw_ptr<TabCloseButton> close_button_ = nullptr;
++  bool is_open_ = false;
++  bool is_active_ = false;
++  bool tab_strip_collapsed_ = false;
++};
++
++VerticalSidebarBookmarksView::VerticalSidebarBookmarksView(
++    TabStripModel* tab_strip_model)
++    : bookmark_model_(BookmarkModelFactory::GetForBrowserContext(
++          tab_strip_model->profile())),
++      tab_strip_model_(tab_strip_model) {
++  CHECK(bookmark_model_);
++  CHECK(tab_strip_model_);
++
++  SetLayoutManager(std::make_unique<views::FlexLayout>())
++      ->SetOrientation(views::LayoutOrientation::kVertical)
++      .SetCrossAxisAlignment(views::LayoutAlignment::kStretch);
++  SetNotifyEnterExitOnChild(true);
++
++  header_button_ = AddChildView(std::make_unique<views::ImageButton>(
++      base::BindRepeating(&VerticalSidebarBookmarksView::ToggleSection,
++                          base::Unretained(this))));
++  header_button_->SetPreferredSize(gfx::Size(-1, kHeaderHeight));
++  header_button_->SetNotifyEnterExitOnChild(true);
++  header_button_->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
++  header_button_->SetInstallFocusRingOnFocus(true);
++  header_button_->SetTooltipText(kBookmarksSectionTitle);
++  views::HighlightPathGenerator::Install(
++      header_button_,
++      std::make_unique<views::RoundRectHighlightPathGenerator>(
++          gfx::Insets(),
++          GetLayoutConstant(LayoutConstant::kVerticalTabCornerRadius)));
++
++  auto* header_layout =
++      header_button_->SetLayoutManager(std::make_unique<views::FlexLayout>());
++  header_layout->SetOrientation(views::LayoutOrientation::kHorizontal)
++      .SetCrossAxisAlignment(views::LayoutAlignment::kCenter)
++      .SetInteriorMargin(gfx::Insets::VH(0, kRowHorizontalInset))
++      .SetDefault(views::kMarginsKey,
++                  gfx::Insets().set_right(kRowChildSpacing));
++
++  header_label_ = header_button_->AddChildView(
++      std::make_unique<views::Label>(kBookmarksSectionTitle));
++  header_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
++  header_label_->SetTextStyle(views::style::STYLE_BODY_5_MEDIUM);
++  header_label_->SetEnabledColor(ui::kColorLabelForegroundSecondary);
++  header_label_->SetCanProcessEventsWithinSubtree(false);
++  header_label_->SetSkipSubpixelRenderingOpacityCheck(true);
++  header_label_->SetProperty(
++      views::kFlexBehaviorKey,
++      views::FlexSpecification(views::LayoutOrientation::kHorizontal,
++                               views::MinimumFlexSizeRule::kScaleToZero,
++                               views::MaximumFlexSizeRule::kUnbounded, true));
++
++  header_icon_ =
++      header_button_->AddChildView(std::make_unique<views::ImageView>());
++  header_icon_->SetImageSize(gfx::Size(kHeaderIconSize, kHeaderIconSize));
++  header_icon_->SetCanProcessEventsWithinSubtree(false);
++  header_icon_->SetProperty(views::kMarginsKey, gfx::Insets());
++
++  rows_container_ = AddChildView(std::make_unique<views::View>());
++  rows_container_->SetLayoutManager(std::make_unique<views::FlexLayout>())
++      ->SetOrientation(views::LayoutOrientation::kVertical)
++      .SetCrossAxisAlignment(views::LayoutAlignment::kStretch);
++
++  bookmark_model_->AddObserver(this);
++  tab_strip_model_->AddObserver(this);
++  InitializeBookmarkModel();
++  UpdateHeader();
++}
++
++VerticalSidebarBookmarksView::~VerticalSidebarBookmarksView() {
++  if (bookmark_model_) {
++    bookmark_model_->RemoveObserver(this);
++  }
++  if (tab_strip_model_) {
++    tab_strip_model_->RemoveObserver(this);
++  }
++}
++
++void VerticalSidebarBookmarksView::SetTabStripCollapsed(bool collapsed) {
++  if (tab_strip_collapsed_ == collapsed) {
++    return;
++  }
++  tab_strip_collapsed_ = collapsed;
++  header_label_->SetVisible(!collapsed);
++  for (BookmarkRow* row : rows_) {
++    row->SetTabStripCollapsed(collapsed);
++  }
++  UpdateHeader();
++  InvalidateLayout();
++}
++
++void VerticalSidebarBookmarksView::InitializeBookmarkModel() {
++  if (bookmark_model_->loaded()) {
++    RefreshFolderAndRows();
++  }
++}
++
++void VerticalSidebarBookmarksView::RefreshFolderAndRows() {
++  if (!bookmark_model_ || !bookmark_model_->loaded()) {
++    return;
++  }
++  sidebar_folder_ = EnsureSteadSidebarBookmarkFolder(bookmark_model_);
++  RebuildRows();
++}
++
++void VerticalSidebarBookmarksView::RebuildRows() {
++  rows_.clear();
++  rows_container_->RemoveAllChildViews();
++
++  if (sidebar_folder_) {
++    for (const auto& child : sidebar_folder_->children()) {
++      if (!child->is_url()) {
++        continue;
++      }
++      std::unique_ptr<views::View> row_view =
++          std::make_unique<BookmarkRow>(this, child.get());
++      auto* row = static_cast<BookmarkRow*>(row_view.get());
++      rows_container_->AddChildView(std::move(row_view));
++      row->SetTabStripCollapsed(tab_strip_collapsed_);
++      rows_.push_back(row);
++    }
++  }
++
++  rows_container_->SetVisible(section_expanded_ && !rows_.empty());
++  UpdateHeader();
++  PreferredSizeChanged();
++}
++
++void VerticalSidebarBookmarksView::UpdateRowsState() {
++  for (BookmarkRow* row : rows_) {
++    row->UpdateState();
++  }
++}
++
++void VerticalSidebarBookmarksView::ToggleSection() {
++  section_expanded_ = !section_expanded_;
++  rows_container_->SetVisible(section_expanded_ && !rows_.empty());
++  UpdateHeader();
++  PreferredSizeChanged();
++}
++
++void VerticalSidebarBookmarksView::UpdateHeader() {
++  const gfx::VectorIcon& icon = section_expanded_
++                                    ? kKeyboardArrowDownChromeRefreshIcon
++                                    : kChevronRightChromeRefreshIcon;
++  header_icon_->SetImage(ui::ImageModel::FromVectorIcon(
++      icon, ui::kColorIconSecondary, kHeaderIconSize));
++  header_icon_->SetVisible(tab_strip_collapsed_ || !section_expanded_ ||
++                           section_hovered_);
++  header_button_->GetViewAccessibility().SetName(kBookmarksSectionTitle);
++  if (section_expanded_) {
++    header_button_->GetViewAccessibility().SetIsExpanded();
++  } else {
++    header_button_->GetViewAccessibility().SetIsCollapsed();
++  }
++}
++
++void VerticalSidebarBookmarksView::OnMouseEntered(const ui::MouseEvent& event) {
++  views::View::OnMouseEntered(event);
++  section_hovered_ = true;
++  UpdateHeader();
++}
++
++void VerticalSidebarBookmarksView::OnMouseExited(const ui::MouseEvent& event) {
++  views::View::OnMouseExited(event);
++  section_hovered_ = false;
++  UpdateHeader();
++}
++
++int VerticalSidebarBookmarksView::FindOpenTab(
++    const bookmarks::BookmarkNode* bookmark) const {
++  if (!tab_strip_model_ || !bookmark || !bookmark->is_url()) {
++    return TabStripModel::kNoTab;
++  }
++  for (int index = 0; index < tab_strip_model_->count(); ++index) {
++    content::WebContents* contents = tab_strip_model_->GetWebContentsAt(index);
++    if (contents && contents->GetVisibleURL() == bookmark->url()) {
++      return index;
++    }
++  }
++  return TabStripModel::kNoTab;
++}
++
++void VerticalSidebarBookmarksView::ActivateOrOpen(
++    const bookmarks::BookmarkNode* bookmark) {
++  if (!tab_strip_model_) {
++    return;
++  }
++  const int open_index = FindOpenTab(bookmark);
++  if (open_index != TabStripModel::kNoTab) {
++    tab_strip_model_->ActivateTabAt(
++        open_index, TabStripUserGestureDetails(
++                        TabStripUserGestureDetails::GestureType::kMouse));
++    return;
++  }
++  tab_strip_model_->delegate()->AddTabAt(bookmark->url(), -1, true);
++}
++
++void VerticalSidebarBookmarksView::CloseOpenTab(
++    const bookmarks::BookmarkNode* bookmark) {
++  if (!tab_strip_model_) {
++    return;
++  }
++  const int open_index = FindOpenTab(bookmark);
++  if (open_index != TabStripModel::kNoTab) {
++    tab_strip_model_->CloseWebContentsAt(
++        open_index, TabCloseTypes::CLOSE_USER_GESTURE |
++                        TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
++  }
++}
++
++void VerticalSidebarBookmarksView::BookmarkModelLoaded(bool ids_reassigned) {
++  RefreshFolderAndRows();
++}
++
++void VerticalSidebarBookmarksView::BookmarkModelBeingDeleted() {
++  bookmark_model_ = nullptr;
++  sidebar_folder_ = nullptr;
++  rows_.clear();
++  rows_container_->RemoveAllChildViews();
++  rows_container_->SetVisible(false);
++  UpdateHeader();
++  PreferredSizeChanged();
++}
++
++void VerticalSidebarBookmarksView::BookmarkNodeMoved(
++    const bookmarks::BookmarkNode* old_parent,
++    size_t old_index,
++    const bookmarks::BookmarkNode* new_parent,
++    size_t new_index) {
++  if (!extensive_changes_ &&
++      (old_parent == sidebar_folder_ || new_parent == sidebar_folder_ ||
++       old_parent == bookmark_model_->other_node() ||
++       new_parent == bookmark_model_->other_node())) {
++    RefreshFolderAndRows();
++  }
++}
++
++void VerticalSidebarBookmarksView::BookmarkNodeAdded(
++    const bookmarks::BookmarkNode* parent,
++    size_t index,
++    bool added_by_user) {
++  if (!extensive_changes_ &&
++      (parent == sidebar_folder_ || parent == bookmark_model_->other_node())) {
++    RefreshFolderAndRows();
++  }
++}
++
++void VerticalSidebarBookmarksView::BookmarkNodeRemoved(
++    const bookmarks::BookmarkNode* parent,
++    size_t old_index,
++    const bookmarks::BookmarkNode* node,
++    const std::set<GURL>& no_longer_bookmarked,
++    const base::Location& location) {
++  if (!extensive_changes_ &&
++      (parent == sidebar_folder_ || node == sidebar_folder_ ||
++       parent == bookmark_model_->other_node())) {
++    if (node == sidebar_folder_) {
++      sidebar_folder_ = nullptr;
++      RebuildRows();
++      return;
++    }
++    sidebar_folder_ = nullptr;
++    RefreshFolderAndRows();
++  }
++}
++
++void VerticalSidebarBookmarksView::BookmarkNodeChanged(
++    const bookmarks::BookmarkNode* node) {
++  if (!extensive_changes_ &&
++      (node == sidebar_folder_ || node->parent() == sidebar_folder_)) {
++    RefreshFolderAndRows();
++  }
++}
++
++void VerticalSidebarBookmarksView::BookmarkNodeFaviconChanged(
++    const bookmarks::BookmarkNode* node) {
++  if (node->parent() != sidebar_folder_) {
++    return;
++  }
++  for (BookmarkRow* row : rows_) {
++    if (row->bookmark() == node) {
++      row->UpdateFavicon();
++      return;
++    }
++  }
++}
++
++void VerticalSidebarBookmarksView::BookmarkNodeChildrenReordered(
++    const bookmarks::BookmarkNode* node) {
++  if (!extensive_changes_ && node == sidebar_folder_) {
++    RebuildRows();
++  }
++}
++
++void VerticalSidebarBookmarksView::ExtensiveBookmarkChangesBeginning() {
++  extensive_changes_ = true;
++}
++
++void VerticalSidebarBookmarksView::ExtensiveBookmarkChangesEnded() {
++  extensive_changes_ = false;
++  RefreshFolderAndRows();
++}
++
++void VerticalSidebarBookmarksView::BookmarkAllUserNodesRemoved(
++    const std::set<GURL>& removed_urls,
++    const base::Location& location) {
++  sidebar_folder_ = nullptr;
++  RebuildRows();
++}
++
++void VerticalSidebarBookmarksView::OnTabStripModelChanged(
++    TabStripModel* tab_strip_model,
++    const TabStripModelChange& change,
++    const TabStripSelectionChange& selection) {
++  UpdateRowsState();
++}
++
++void VerticalSidebarBookmarksView::OnTabChangedAt(tabs::TabInterface* tab,
++                                                  int index,
++                                                  TabChangeType change_type) {
++  UpdateRowsState();
++}
++
++void VerticalSidebarBookmarksView::OnTabStripModelDestroyed(
++    TabStripModel* tab_strip_model) {
++  tab_strip_model_ = nullptr;
++}
+Index: src/chrome/browser/ui/views/tabs/vertical/vertical_sidebar_bookmarks_view.h
+===================================================================
+--- /dev/null
++++ src/chrome/browser/ui/views/tabs/vertical/vertical_sidebar_bookmarks_view.h
+@@ -0,0 +1,111 @@
++// Copyright 2026 The Stead Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_TABS_VERTICAL_VERTICAL_SIDEBAR_BOOKMARKS_VIEW_H_
++#define CHROME_BROWSER_UI_VIEWS_TABS_VERTICAL_VERTICAL_SIDEBAR_BOOKMARKS_VIEW_H_
++
++#include <set>
++#include <vector>
++
++#include "base/memory/raw_ptr.h"
++#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
++#include "components/bookmarks/browser/bookmark_model_observer.h"
++#include "ui/views/view.h"
++
++class TabStripModel;
++
++namespace bookmarks {
++class BookmarkModel;
++class BookmarkNode;
++}  // namespace bookmarks
++
++namespace views {
++class Button;
++class ImageView;
++class Label;
++}  // namespace views
++
++// Displays bookmarks saved in Other Bookmarks/Sidebar as reopenable tabs.
++// Closing a live tab only changes browser state; the bookmark row remains.
++class VerticalSidebarBookmarksView : public views::View,
++                                     public bookmarks::BookmarkModelObserver,
++                                     public TabStripModelObserver {
++ public:
++  explicit VerticalSidebarBookmarksView(TabStripModel* tab_strip_model);
++  VerticalSidebarBookmarksView(const VerticalSidebarBookmarksView&) = delete;
++  VerticalSidebarBookmarksView& operator=(const VerticalSidebarBookmarksView&) =
++      delete;
++  ~VerticalSidebarBookmarksView() override;
++
++  void SetTabStripCollapsed(bool collapsed);
++
++  // views::View:
++  void OnMouseEntered(const ui::MouseEvent& event) override;
++  void OnMouseExited(const ui::MouseEvent& event) override;
++
++ private:
++  class BookmarkRow;
++
++  void InitializeBookmarkModel();
++  void RefreshFolderAndRows();
++  void RebuildRows();
++  void UpdateRowsState();
++  void ToggleSection();
++  void UpdateHeader();
++
++  int FindOpenTab(const bookmarks::BookmarkNode* bookmark) const;
++  void ActivateOrOpen(const bookmarks::BookmarkNode* bookmark);
++  void CloseOpenTab(const bookmarks::BookmarkNode* bookmark);
++
++  // bookmarks::BookmarkModelObserver:
++  void BookmarkModelLoaded(bool ids_reassigned) override;
++  void BookmarkModelBeingDeleted() override;
++  void BookmarkNodeMoved(const bookmarks::BookmarkNode* old_parent,
++                         size_t old_index,
++                         const bookmarks::BookmarkNode* new_parent,
++                         size_t new_index) override;
++  void BookmarkNodeAdded(const bookmarks::BookmarkNode* parent,
++                         size_t index,
++                         bool added_by_user) override;
++  void BookmarkNodeRemoved(const bookmarks::BookmarkNode* parent,
++                           size_t old_index,
++                           const bookmarks::BookmarkNode* node,
++                           const std::set<GURL>& no_longer_bookmarked,
++                           const base::Location& location) override;
++  void BookmarkNodeChanged(const bookmarks::BookmarkNode* node) override;
++  void BookmarkNodeFaviconChanged(const bookmarks::BookmarkNode* node) override;
++  void BookmarkNodeChildrenReordered(
++      const bookmarks::BookmarkNode* node) override;
++  void ExtensiveBookmarkChangesBeginning() override;
++  void ExtensiveBookmarkChangesEnded() override;
++  void BookmarkAllUserNodesRemoved(const std::set<GURL>& removed_urls,
++                                   const base::Location& location) override;
++
++  // TabStripModelObserver:
++  void OnTabStripModelChanged(
++      TabStripModel* tab_strip_model,
++      const TabStripModelChange& change,
++      const TabStripSelectionChange& selection) override;
++  void OnTabChangedAt(tabs::TabInterface* tab,
++                      int index,
++                      TabChangeType change_type) override;
++  void OnTabStripModelDestroyed(TabStripModel* tab_strip_model) override;
++
++  raw_ptr<bookmarks::BookmarkModel> bookmark_model_ = nullptr;
++  raw_ptr<const bookmarks::BookmarkNode> sidebar_folder_ = nullptr;
++  raw_ptr<TabStripModel> tab_strip_model_ = nullptr;
++
++  raw_ptr<views::Button> header_button_ = nullptr;
++  raw_ptr<views::ImageView> header_icon_ = nullptr;
++  raw_ptr<views::Label> header_label_ = nullptr;
++  raw_ptr<views::View> rows_container_ = nullptr;
++  std::vector<raw_ptr<BookmarkRow>> rows_;
++
++  bool section_expanded_ = true;
++  bool section_hovered_ = false;
++  bool tab_strip_collapsed_ = false;
++  bool extensive_changes_ = false;
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_TABS_VERTICAL_VERTICAL_SIDEBAR_BOOKMARKS_VIEW_H_
+Index: src/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h
+===================================================================
+--- src.orig/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h
++++ src/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h
+@@ -85,6 +85,7 @@ class VerticalTabStripController : publi
+   }
+ 
+   BrowserView* GetBrowserView() const { return browser_view_; }
++  TabStripModel* GetTabStripModel() const { return model_; }
+ 
+   VerticalTabDragHandler& GetDragHandler() { return drag_handler_.get(); }
+   const VerticalTabDragHandler& GetDragHandler() const {
+Index: src/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc
+===================================================================
+--- src.orig/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc
++++ src/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc
+@@ -17,6 +17,7 @@
+ #include "chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.h"
+ #include "chrome/browser/ui/views/tabs/vertical/tab_collection_node.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_pinned_tab_container_view.h"
++#include "chrome/browser/ui/views/tabs/vertical/vertical_sidebar_bookmarks_view.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_group_view.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_scroll_bar.h"
+@@ -35,6 +36,12 @@
+ #include "ui/views/view_class_properties.h"
+ #include "ui/views/view_utils.h"
+ 
++namespace {
++
++constexpr int kBookmarkDividerHorizontalInset = 8;
++
++}  // namespace
++
+ class VerticalTabStripView::ActivatedViewTracker : public views::ViewObserver {
+  public:
+   ActivatedViewTracker() = default;
+@@ -106,6 +113,16 @@ VerticalTabStripView::VerticalTabStripVi
+       views::ScrollView::ScrollWithLayers::kEnabled));
+   SetScrollViewProperties(pinned_tabs_scroll_view_);
+ 
++  sidebar_bookmarks_scroll_view_ =
++      AddChildView(std::make_unique<views::ScrollView>(
++          views::ScrollView::ScrollWithLayers::kEnabled));
++  SetScrollViewProperties(sidebar_bookmarks_scroll_view_);
++  sidebar_bookmarks_view_ = sidebar_bookmarks_scroll_view_->SetContents(
++      std::make_unique<VerticalSidebarBookmarksView>(
++          collection_node_->GetController()->GetTabStripModel()));
++
++  bookmarks_separator_ = AddChildView(std::make_unique<views::Separator>());
++
+   unpinned_tabs_scroll_view_ = AddChildView(std::make_unique<views::ScrollView>(
+       views::ScrollView::ScrollWithLayers::kEnabled));
+   SetScrollViewProperties(unpinned_tabs_scroll_view_);
+@@ -148,21 +165,45 @@ views::ProposedLayout VerticalTabStripVi
+       pinned_tabs_scroll_view_
+           ->GetPreferredSize(pinned_tab_container_size_bounds)
+           .height();
++  const int sidebar_preferred_height =
++      sidebar_bookmarks_scroll_view_->GetPreferredSize(size_bounds).height();
+   const int unpinned_preferred_height =
+       unpinned_tabs_scroll_view_->GetPreferredSize(size_bounds).height();
++  const bool show_bookmarks_separator =
++      sidebar_preferred_height != 0 && unpinned_preferred_height != 0;
++  const int bookmarks_separator_height =
++      show_bookmarks_separator
++          ? 2 * region_vertical_padding + views::Separator::kThickness
++          : 0;
+ 
+   // If the height is bounded, calculate the available space for laying out the
+-  // pinned and unpinned containers.
++  // pinned, sidebar bookmark, and unpinned containers.
+   int remaining_height = 0;
+   if (size_bounds.height().is_bounded()) {
+     remaining_height = size_bounds.height().value();
+-    if (pinned_preferred_height != 0 && unpinned_preferred_height != 0) {
++    if (pinned_preferred_height != 0 && sidebar_preferred_height != 0) {
+       remaining_height -= region_vertical_padding;
+     }
++    remaining_height -= bookmarks_separator_height;
+     // Clamp the remaining height to 0 if we have less space.
+     remaining_height = std::max(remaining_height, 0);
+   }
+ 
++  // Keep the bookmark section compact only when the preferred content does not
++  // fit. Capping it unconditionally clips the first bookmark row even when all
++  // three regions have enough room.
++  int sidebar_container_height = sidebar_preferred_height;
++  if (size_bounds.height().is_bounded()) {
++    const int total_preferred_height =
++        pinned_preferred_height + sidebar_preferred_height +
++        unpinned_preferred_height;
++    if (total_preferred_height > remaining_height) {
++      sidebar_container_height =
++          std::min(sidebar_preferred_height, remaining_height / 3);
++    }
++    remaining_height -= sidebar_container_height;
++  }
++
+   // Place the pinned container.
+   int pinned_container_height = pinned_preferred_height;
+   if (size_bounds.height().is_bounded()) {
+@@ -186,12 +227,38 @@ views::ProposedLayout VerticalTabStripVi
+ 
+   if (pinned_container_bounds.height()) {
+     y += pinned_container_bounds.height();
+-    // Add padding only if there are pinned and unpinned tabs.
+-    if (unpinned_preferred_height != 0) {
++    if (sidebar_container_height != 0) {
+       y += region_vertical_padding;
+     }
+   }
+ 
++  gfx::Rect sidebar_container_bounds(
++      region_horizontal_padding, y,
++      pinned_tab_container_size_bounds.width().value(),
++      sidebar_container_height);
++  layouts.child_layouts.emplace_back(sidebar_bookmarks_scroll_view_.get(),
++                                     sidebar_container_height != 0,
++                                     sidebar_container_bounds);
++  if (sidebar_container_height != 0) {
++    y += sidebar_container_height;
++  }
++
++  if (show_bookmarks_separator) {
++    y += region_vertical_padding;
++    gfx::Rect bookmarks_separator_bounds(
++        region_horizontal_padding + kBookmarkDividerHorizontalInset, y,
++        std::max(pinned_tab_container_size_bounds.width().value() -
++                     2 * kBookmarkDividerHorizontalInset,
++                 0),
++        views::Separator::kThickness);
++    layouts.child_layouts.emplace_back(bookmarks_separator_.get(), true,
++                                       bookmarks_separator_bounds);
++    y += views::Separator::kThickness + region_vertical_padding;
++  } else {
++    layouts.child_layouts.emplace_back(bookmarks_separator_.get(), false,
++                                       gfx::Rect());
++  }
++
+   // Place the unpinned container using the entire available width, we do not
+   // inset the x value by |region_horizontal_padding| here because, when the tab
+   // strip is collapsed, tab groups need to draw the group colored line in this
+@@ -333,13 +400,15 @@ VerticalTabStripView::GetUnpinnedTabsCon
+ void VerticalTabStripView::SetCollapsedState(bool is_collapsed) {
+   if (is_collapsed != is_collapsed_) {
+     is_collapsed_ = is_collapsed;
++    sidebar_bookmarks_view_->SetTabStripCollapsed(is_collapsed);
+     InvalidateLayout();
+   }
+ }
+ 
+ void VerticalTabStripView::SetIsAnimatingSize(bool is_animating) {
+   for (views::ScrollView* scroll_view :
+-       {pinned_tabs_scroll_view_, unpinned_tabs_scroll_view_}) {
++       {pinned_tabs_scroll_view_, sidebar_bookmarks_scroll_view_,
++        unpinned_tabs_scroll_view_}) {
+     if (scroll_view) {
+       static_cast<VerticalTabStripScrollBar*>(
+           scroll_view->vertical_scroll_bar())
+Index: src/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h
+===================================================================
+--- src.orig/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h
++++ src/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h
+@@ -15,6 +15,7 @@
+ 
+ class TabCollectionNode;
+ class VerticalPinnedTabContainerView;
++class VerticalSidebarBookmarksView;
+ class VerticalUnpinnedTabContainerView;
+ 
+ namespace views {
+@@ -23,9 +24,10 @@ class Separator;
+ class View;
+ }  // namespace views
+ 
+-// The view class for vertical tab strip which holds the pinned and unpinned
+-// regions and associates them to their scroll views. It also is responsible for
+-// scrolling to the active tab view when the active tab changes.
++// The view class for vertical tab strip which holds the pinned, sidebar
++// bookmark, and unpinned regions and associates them to their scroll views. It
++// also is responsible for scrolling to the active tab view when the active tab
++// changes.
+ class VerticalTabStripView final : public views::View,
+                                    public views::LayoutDelegate,
+                                    public views::WidgetObserver {
+@@ -97,6 +99,9 @@ class VerticalTabStripView final : publi
+   raw_ptr<TabCollectionNode> collection_node_ = nullptr;
+   raw_ptr<views::ScrollView> pinned_tabs_scroll_view_ = nullptr;
+   raw_ptr<VerticalPinnedTabContainerView> pinned_tabs_container_view_ = nullptr;
++  raw_ptr<views::ScrollView> sidebar_bookmarks_scroll_view_ = nullptr;
++  raw_ptr<VerticalSidebarBookmarksView> sidebar_bookmarks_view_ = nullptr;
++  raw_ptr<views::Separator> bookmarks_separator_ = nullptr;
+   raw_ptr<views::Separator> tabs_separator_ = nullptr;
+   raw_ptr<views::ScrollView> unpinned_tabs_scroll_view_ = nullptr;
+   raw_ptr<VerticalUnpinnedTabContainerView> unpinned_tabs_container_view_ =
