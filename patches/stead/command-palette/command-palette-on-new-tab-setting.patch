@@ -1,0 +1,104 @@
+--- a/chrome/common/pref_names.h
++++ b/chrome/common/pref_names.h
+@@ -747,6 +747,11 @@
+ // when cycling through tabs with Ctrl+Tab.
+ inline constexpr char kTabCyclingMRU[] = "helium.browser.mru_tab_cycling";
+ 
++// A boolean pref set to true if the new-tab shortcut should open the Stead
++// command palette bubble instead of creating a blank tab.
++inline constexpr char kSteadCommandPaletteOnNewTab[] =
++    "stead.browser.command_palette_on_new_tab";
++
+ // A boolean pref set to true if web contents should be shown inside a rounded
+ // frame.
+ inline constexpr char kHeliumRoundedFrame[] = "helium.browser.rounded_frame";
+--- a/chrome/browser/ui/browser_ui_prefs.cc
++++ b/chrome/browser/ui/browser_ui_prefs.cc
+@@ -122,6 +122,7 @@
+   registry->RegisterBooleanPref(prefs::kNewTabNextToActive, false);
+ 
+   registry->RegisterBooleanPref(prefs::kTabCyclingMRU, false);
++  registry->RegisterBooleanPref(prefs::kSteadCommandPaletteOnNewTab, false);
+ 
+   registry->RegisterBooleanPref(prefs::kHeliumRoundedFrame, true);
+ 
+--- a/chrome/browser/extensions/api/settings_private/prefs_util.cc
++++ b/chrome/browser/extensions/api/settings_private/prefs_util.cc
+@@ -277,6 +277,8 @@
+       settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kTabCyclingMRU] =
+       settings_api::PrefType::kBoolean;
++  (*s_allowlist)[::prefs::kSteadCommandPaletteOnNewTab] =
++      settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kHeliumRoundedFrame] =
+       settings_api::PrefType::kBoolean;
+ 
+--- a/chrome/app/settings_strings.grdp
++++ b/chrome/app/settings_strings.grdp
+@@ -273,6 +273,16 @@
+     <message name="IDS_SETTINGS_CYCLE_TABS_IN_MRU_ORDER" desc="Label for the checkbox which enables or disables cycling through tabs in MRU order when using Ctrl+Tab.">
+       Cycle through tabs in most recently used order with Ctrl+Tab
+     </message>
++    <if expr="is_macosx">
++      <message name="IDS_SETTINGS_COMMAND_PALETTE_ON_NEW_TAB" desc="Label for the toggle which makes the new-tab keyboard shortcut open the Stead command palette (a search popup over tabs, bookmarks, and history) instead of a blank new tab.">
++        Open the command palette with ⌘+T instead of a new tab
++      </message>
++    </if>
++    <if expr="not is_macosx">
++      <message name="IDS_SETTINGS_COMMAND_PALETTE_ON_NEW_TAB" desc="Label for the toggle which makes the new-tab keyboard shortcut open the Stead command palette (a search popup over tabs, bookmarks, and history) instead of a blank new tab.">
++        Open the command palette with Ctrl+T instead of a new tab
++      </message>
++    </if>
+     <message name="IDS_SETTINGS_ROUNDED_FRAME" desc="Label for the toggle which enables or disables a rounded frame around web contents.">
+       Show a rounded frame around web contents
+     </message>
+--- a/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
++++ b/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
+@@ -517,6 +517,7 @@
+       {"systemMode", IDS_NTP_CUSTOMIZE_CHROME_COLOR_SCHEME_MODE_SYSTEM_LABEL},
+       {"openNewTabNextToActive", IDS_SETTINGS_NEW_TAB_NEXT_TO_ACTIVE_BUTTON},
+       {"cycleTabsInMRUOrder", IDS_SETTINGS_CYCLE_TABS_IN_MRU_ORDER},
++      {"commandPaletteOnNewTab", IDS_SETTINGS_COMMAND_PALETTE_ON_NEW_TAB},
+       {"roundedFrame", IDS_SETTINGS_ROUNDED_FRAME},
+       {"browserLayout", IDS_SETTINGS_BROWSER_LAYOUT},
+       {"browserLayoutClassic", IDS_SETTINGS_BROWSER_LAYOUT_CLASSIC},
+--- a/chrome/browser/resources/settings/appearance_page/appearance_behavior_page.html
++++ b/chrome/browser/resources/settings/appearance_page/appearance_behavior_page.html
+@@ -11,6 +11,11 @@
+       label="$i18n{cycleTabsInMRUOrder}">
+   </settings-toggle-button>
+ 
++  <settings-toggle-button class="hr" id="commandPaletteOnNewTab"
++      pref="{{prefs.stead.browser.command_palette_on_new_tab}}"
++      label="$i18n{commandPaletteOnNewTab}">
++  </settings-toggle-button>
++
+   <settings-toggle-button class="hr" id="copyPageUrlShortcut"
+       pref="{{prefs.helium.settings.a11y.copy_page_url_shortcut}}"
+       label="$i18n{copyPageUrlShortcut}">
+--- a/chrome/browser/ui/browser_command_controller.cc
++++ b/chrome/browser/ui/browser_command_controller.cc
+@@ -92,6 +92,7 @@
+ #include "chrome/browser/ui/ui_features.h"
+ #include "chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.h"
+ #include "chrome/browser/ui/views/frame/browser_view.h"
++#include "chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.h"
+ #include "chrome/browser/ui/views/side_panel/tabs_from_other_devices/tabs_from_other_devices_side_panel_coordinator.h"
+ #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+ #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
+@@ -703,6 +704,15 @@
+       CloseWindow(browser_);
+       break;
+     case IDC_NEW_TAB: {
++      // Stead: the new-tab shortcut can open the command palette instead.
++      // Windows without a palette host (apps, popups) keep the real new tab.
++      if (profile()->GetPrefs()->GetBoolean(
++              prefs::kSteadCommandPaletteOnNewTab)) {
++        if (auto* palette = SteadCommandPaletteBubbleHost::From(browser_)) {
++          palette->Toggle();
++          break;
++        }
++      }
+       NewTab(browser_);
+       break;
+     }

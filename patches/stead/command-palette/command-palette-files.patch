@@ -1,0 +1,585 @@
+diff --git a/chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.h b/chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.h
+new file mode 100644
+--- /dev/null
++++ b/chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.h
+@@ -0,0 +1,76 @@
++// Copyright 2026 The Stead Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_WEBUI_STEAD_COMMAND_PALETTE_STEAD_COMMAND_PALETTE_UI_H_
++#define CHROME_BROWSER_UI_WEBUI_STEAD_COMMAND_PALETTE_STEAD_COMMAND_PALETTE_UI_H_
++
++#include <string>
++#include <string_view>
++
++#include "base/memory/weak_ptr.h"
++#include "base/task/cancelable_task_tracker.h"
++#include "base/values.h"
++#include "chrome/browser/ui/webui/top_chrome/top_chrome_web_ui_controller.h"
++#include "chrome/browser/ui/webui/top_chrome/top_chrome_webui_config.h"
++#include "chrome/common/webui_url_constants.h"
++#include "components/history/core/browser/history_types.h"
++#include "content/public/common/url_constants.h"
++
++class BrowserWindowInterface;
++class SteadCommandPaletteUI;
++
++// Top Chrome WebUI config for the Cmd+T command palette bubble. Auto-resizes
++// so the bubble fits the rendered result list exactly.
++class SteadCommandPaletteUIConfig
++    : public DefaultTopChromeWebUIConfig<SteadCommandPaletteUI> {
++ public:
++  SteadCommandPaletteUIConfig()
++      : DefaultTopChromeWebUIConfig(content::kChromeUIScheme,
++                                    chrome::kSteadCommandPaletteHost) {}
++
++  bool ShouldAutoResizeHost() override;
++};
++
++// Hosts the /command-palette route of the shared Stead SPA bundle inside a
++// WebUIBubbleDialogView (see SteadCommandPaletteBubbleHost). The page drives
++// search over chrome.send() and receives results through
++// window.steadPaletteResults(); every action is scoped to the browser window
++// that opened the bubble.
++class SteadCommandPaletteUI : public TopChromeWebUIController {
++ public:
++  explicit SteadCommandPaletteUI(content::WebUI* web_ui);
++
++  SteadCommandPaletteUI(const SteadCommandPaletteUI&) = delete;
++  SteadCommandPaletteUI& operator=(const SteadCommandPaletteUI&) = delete;
++  ~SteadCommandPaletteUI() override;
++
++  static constexpr std::string_view GetWebUIName() {
++    return "SteadCommandPalette";
++  }
++
++  // Called by the bubble host each time a (possibly cached) bubble is shown
++  // again so the page clears its previous query.
++  void BeforeBubbleWidgetShowed();
++
++ private:
++  void HandleReady(const base::ListValue& args);
++  void HandleClose(const base::ListValue& args);
++  void HandleSearch(const base::ListValue& args);
++  void HandleOpen(const base::ListValue& args);
++
++  void OnHistoryResults(int request_id,
++                        std::u16string query,
++                        base::ListValue results,
++                        history::QueryResults history_results);
++  void SendResults(int request_id, base::ListValue results);
++
++  BrowserWindowInterface* GetBrowserWindow();
++
++  base::CancelableTaskTracker history_task_tracker_;
++  base::WeakPtrFactory<SteadCommandPaletteUI> weak_factory_{this};
++
++  WEB_UI_CONTROLLER_TYPE_DECL();
++};
++
++#endif  // CHROME_BROWSER_UI_WEBUI_STEAD_COMMAND_PALETTE_STEAD_COMMAND_PALETTE_UI_H_
+diff --git a/chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.cc b/chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.cc
+new file mode 100644
+--- /dev/null
++++ b/chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.cc
+@@ -0,0 +1,346 @@
++// Copyright 2026 The Stead Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.h"
++
++#include <algorithm>
++#include <memory>
++#include <string>
++#include <utility>
++#include <vector>
++
++#include "base/functional/bind.h"
++#include "base/functional/callback_helpers.h"
++#include "base/i18n/case_conversion.h"
++#include "base/strings/escape.h"
++#include "base/strings/string_util.h"
++#include "base/strings/utf_string_conversions.h"
++#include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
++#include "chrome/browser/bookmarks/bookmark_model_factory.h"
++#include "chrome/browser/history/history_service_factory.h"
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
++#include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
++#include "chrome/browser/ui/navigator/browser_navigator.h"
++#include "chrome/browser/ui/navigator/browser_navigator_params.h"
++#include "chrome/browser/ui/tabs/tab_strip_model.h"
++#include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
++#include "chrome/browser/ui/webui/favicon_source.h"
++#include "chrome/browser/ui/webui/webui_embedding_context.h"
++#include "chrome/common/webui_url_constants.h"
++#include "chrome/grit/stead_sidebar_resources.h"
++#include "chrome/grit/stead_sidebar_resources_map.h"
++#include "components/bookmarks/browser/bookmark_model.h"
++#include "components/bookmarks/browser/bookmark_node.h"
++#include "components/bookmarks/browser/bookmark_utils.h"
++#include "components/favicon_base/favicon_url_parser.h"
++#include "components/history/core/browser/history_service.h"
++#include "components/omnibox/browser/autocomplete_classifier.h"
++#include "components/omnibox/browser/autocomplete_match.h"
++#include "components/tabs/public/tab_interface.h"
++#include "content/public/browser/url_data_source.h"
++#include "content/public/browser/web_contents.h"
++#include "content/public/browser/web_ui.h"
++#include "content/public/browser/web_ui_data_source.h"
++#include "services/network/public/mojom/content_security_policy.mojom.h"
++#include "third_party/metrics_proto/omnibox_event.pb.h"
++#include "ui/base/base_window.h"
++#include "ui/base/window_open_disposition.h"
++#include "ui/webui/webui_util.h"
++#include "url/gurl.h"
++
++namespace {
++
++constexpr size_t kMaxTabResults = 12;
++constexpr size_t kMaxBookmarkResults = 6;
++constexpr int kMaxHistoryResults = 8;
++
++base::DictValue MakeResult(std::string_view kind,
++                           std::u16string_view title,
++                           const GURL& url) {
++  base::DictValue result;
++  result.Set("kind", kind);
++  result.Set("title", title);
++  result.Set("url", url.spec());
++  return result;
++}
++
++bool ContainsIgnoringCase(std::u16string_view haystack,
++                          const std::u16string& needle_lower) {
++  if (needle_lower.empty()) {
++    return true;
++  }
++  return base::i18n::ToLower(haystack).find(needle_lower) !=
++         std::u16string::npos;
++}
++
++bool IsSearchableUrl(const GURL& url) {
++  return url.is_valid() && (url.SchemeIsHTTPOrHTTPS() || url.SchemeIsFile());
++}
++
++}  // namespace
++
++bool SteadCommandPaletteUIConfig::ShouldAutoResizeHost() {
++  return true;
++}
++
++SteadCommandPaletteUI::SteadCommandPaletteUI(content::WebUI* web_ui)
++    : TopChromeWebUIController(web_ui, /*enable_chrome_send=*/true) {
++  web_ui->RegisterMessageCallback(
++      "steadPaletteReady",
++      base::BindRepeating(&SteadCommandPaletteUI::HandleReady,
++                          base::Unretained(this)));
++  web_ui->RegisterMessageCallback(
++      "steadPaletteClose",
++      base::BindRepeating(&SteadCommandPaletteUI::HandleClose,
++                          base::Unretained(this)));
++  web_ui->RegisterMessageCallback(
++      "steadPaletteSearch",
++      base::BindRepeating(&SteadCommandPaletteUI::HandleSearch,
++                          base::Unretained(this)));
++  web_ui->RegisterMessageCallback(
++      "steadPaletteOpen",
++      base::BindRepeating(&SteadCommandPaletteUI::HandleOpen,
++                          base::Unretained(this)));
++  // The shared SPA layout probes for a theme handler on every surface.
++  web_ui->RegisterMessageCallback("getSteadTheme", base::DoNothing());
++
++  Profile* profile = Profile::FromWebUI(web_ui);
++  content::URLDataSource::Add(
++      profile, std::make_unique<FaviconSource>(
++                   profile, chrome::FaviconUrlFormat::kFavicon2));
++  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
++      profile, chrome::kSteadCommandPaletteHost);
++
++  // index.html is the default resource so /command-palette falls back to the
++  // SPA shell and SvelteKit's router renders the route.
++  webui::SetupWebUIDataSource(source, kSteadSidebarResources,
++                              IDR_STEAD_SIDEBAR_INDEX_HTML);
++
++  // Same CSP relaxations as the other Stead surfaces: SvelteKit boots from an
++  // inline <script> and the bundle uses inline style="" attributes.
++  source->OverrideContentSecurityPolicy(
++      network::mojom::CSPDirectiveName::ScriptSrc,
++      "script-src chrome://resources 'self' 'unsafe-inline';");
++  source->OverrideContentSecurityPolicy(
++      network::mojom::CSPDirectiveName::StyleSrc,
++      "style-src 'self' 'unsafe-inline';");
++  source->OverrideContentSecurityPolicy(
++      network::mojom::CSPDirectiveName::FontSrc, "font-src 'self';");
++  source->OverrideContentSecurityPolicy(
++      network::mojom::CSPDirectiveName::ImgSrc,
++      "img-src 'self' data: chrome://resources chrome://theme "
++      "chrome://favicon2;");
++  source->DisableTrustedTypesCSP();
++}
++
++SteadCommandPaletteUI::~SteadCommandPaletteUI() = default;
++
++void SteadCommandPaletteUI::BeforeBubbleWidgetShowed() {
++  web_ui()->CallJavascriptFunctionUnsafe("steadPaletteReset");
++}
++
++BrowserWindowInterface* SteadCommandPaletteUI::GetBrowserWindow() {
++  // Set by WebUIBubbleManager before the bubble is created.
++  if (BrowserWindowInterface* window =
++          webui::GetBrowserWindowInterface(web_ui()->GetWebContents())) {
++    return window;
++  }
++  return ProfileBrowserCollection::GetForProfile(Profile::FromWebUI(web_ui()))
++      ->FindTabbedBrowser();
++}
++
++void SteadCommandPaletteUI::HandleReady(const base::ListValue&) {
++  if (embedder()) {
++    embedder()->ShowUI();
++  }
++}
++
++void SteadCommandPaletteUI::HandleClose(const base::ListValue&) {
++  if (embedder()) {
++    embedder()->CloseUI();
++  }
++}
++
++void SteadCommandPaletteUI::HandleSearch(const base::ListValue& args) {
++  if (args.size() < 2 || !args[0].is_int() || !args[1].is_string()) {
++    return;
++  }
++  const int request_id = args[0].GetInt();
++  std::u16string query = base::UTF8ToUTF16(args[1].GetString());
++  base::TrimWhitespace(query, base::TRIM_ALL, &query);
++  const std::u16string query_lower = base::i18n::ToLower(query);
++
++  Profile* profile = Profile::FromWebUI(web_ui());
++  BrowserWindowInterface* window = GetBrowserWindow();
++  base::ListValue results;
++
++  // Open tabs of this profile, current window first, active tab first.
++  std::vector<BrowserWindowInterface*> windows;
++  if (window) {
++    windows.push_back(window);
++  }
++  ProfileBrowserCollection::GetForProfile(profile)->ForEach(
++      [&](BrowserWindowInterface* other) {
++        if (other != window &&
++            other->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL) {
++          windows.push_back(other);
++        }
++        return true;
++      },
++      BrowserCollection::Order::kActivation);
++
++  size_t tab_count = 0;
++  for (BrowserWindowInterface* candidate : windows) {
++    TabStripModel* tab_strip = candidate->GetTabStripModel();
++    if (!tab_strip) {
++      continue;
++    }
++    const int active_index = tab_strip->active_index();
++    for (int i = 0; i < tab_strip->count() && tab_count < kMaxTabResults;
++         ++i) {
++      tabs::TabInterface* tab = tab_strip->GetTabAtIndex(i);
++      content::WebContents* contents = tab ? tab->GetContents() : nullptr;
++      if (!contents) {
++        continue;
++      }
++      const GURL& url = contents->GetVisibleURL();
++      const std::u16string& title = contents->GetTitle();
++      if (!ContainsIgnoringCase(title, query_lower) &&
++          !ContainsIgnoringCase(base::UTF8ToUTF16(url.spec()), query_lower)) {
++        continue;
++      }
++      base::DictValue result = MakeResult("tab", title, url);
++      result.Set("tab_id", tab->GetHandle().raw_value());
++      result.Set("active", candidate == window && i == active_index);
++      results.Append(std::move(result));
++      ++tab_count;
++    }
++  }
++
++  // Bookmarks. The model may still be loading during early startup.
++  if (!query.empty()) {
++    bookmarks::BookmarkModel* bookmark_model =
++        BookmarkModelFactory::GetForBrowserContextIfExists(profile);
++    if (bookmark_model && bookmark_model->loaded()) {
++      bookmarks::QueryFields fields;
++      fields.word_phrase_query = std::make_unique<std::u16string>(query);
++      for (const bookmarks::BookmarkNode* node :
++           bookmarks::GetBookmarksMatchingProperties(bookmark_model, fields,
++                                                     kMaxBookmarkResults)) {
++        if (node->is_url()) {
++          results.Append(MakeResult("bookmark", node->GetTitle(), node->url()));
++        }
++      }
++    }
++  }
++
++  history::HistoryService* history_service =
++      HistoryServiceFactory::GetForProfileIfExists(
++          profile, ServiceAccessType::EXPLICIT_ACCESS);
++  if (query.empty() || !history_service) {
++    OnHistoryResults(request_id, std::move(query), std::move(results),
++                     history::QueryResults());
++    return;
++  }
++
++  history::QueryOptions options;
++  options.max_count = kMaxHistoryResults;
++  options.duplicate_policy = history::QueryOptions::REMOVE_ALL_DUPLICATES;
++  history_task_tracker_.TryCancelAll();
++  history_service->QueryHistory(
++      query, options,
++      base::BindOnce(&SteadCommandPaletteUI::OnHistoryResults,
++                     weak_factory_.GetWeakPtr(), request_id, std::move(query),
++                     std::move(results)),
++      &history_task_tracker_);
++}
++
++void SteadCommandPaletteUI::OnHistoryResults(
++    int request_id,
++    std::u16string query,
++    base::ListValue results,
++    history::QueryResults history_results) {
++  for (const history::URLResult& row : history_results) {
++    if (IsSearchableUrl(row.url())) {
++      results.Append(MakeResult("history", row.title(), row.url()));
++    }
++  }
++
++  if (!query.empty()) {
++    // Let the omnibox decide whether the input is a URL or a search, so the
++    // user's default search engine and scheme-fixup rules apply.
++    AutocompleteMatch match;
++    if (AutocompleteClassifier* classifier =
++            AutocompleteClassifierFactory::GetForProfile(
++                Profile::FromWebUI(web_ui()))) {
++      classifier->Classify(query, /*prefer_keyword=*/false,
++                           /*allow_exact_keyword_match=*/false,
++                           metrics::OmniboxEventProto::OTHER, &match, nullptr);
++    }
++    if (match.destination_url.is_valid()) {
++      results.Append(MakeResult(
++          AutocompleteMatch::IsSearchType(match.type) ? "search" : "url",
++          query, match.destination_url));
++    }
++
++    std::string chat_url = std::string(chrome::kSteadChatURL) +
++                           "?source=palette&prompt=" +
++                           base::EscapeQueryParamValue(
++                               base::UTF16ToUTF8(query), /*use_plus=*/true);
++    results.Append(MakeResult("ask", query, GURL(chat_url)));
++  }
++
++  SendResults(request_id, std::move(results));
++}
++
++void SteadCommandPaletteUI::SendResults(int request_id,
++                                        base::ListValue results) {
++  web_ui()->CallJavascriptFunctionUnsafe("steadPaletteResults",
++                                         base::Value(request_id),
++                                         base::Value(std::move(results)));
++}
++
++void SteadCommandPaletteUI::HandleOpen(const base::ListValue& args) {
++  if (args.size() < 3 || !args[0].is_string() || !args[1].is_string() ||
++      !args[2].is_int()) {
++    return;
++  }
++  const std::string& kind = args[0].GetString();
++  const GURL url(args[1].GetString());
++  const int tab_id = args[2].GetInt();
++
++  BrowserWindowInterface* window = GetBrowserWindow();
++  if (!window) {
++    return;
++  }
++
++  if (kind == "tab") {
++    tabs::TabInterface* tab = tabs::TabHandle(tab_id).Get();
++    BrowserWindowInterface* owner =
++        tab ? tab->GetBrowserWindowInterface() : nullptr;
++    TabStripModel* tab_strip = owner ? owner->GetTabStripModel() : nullptr;
++    const int index =
++        tab_strip ? tab_strip->GetIndexOfTab(tab) : TabStripModel::kNoTab;
++    if (index != TabStripModel::kNoTab) {
++      tab_strip->ActivateTabAt(
++          index, TabStripUserGestureDetails(
++                     TabStripUserGestureDetails::GestureType::kKeyboard));
++      owner->GetWindow()->Activate();
++    }
++  } else if (url.is_valid()) {
++    // Everything else replaces the blank tab Cmd+T would have opened.
++    NavigateParams params(window, url,
++                          kind == "search" ? ui::PAGE_TRANSITION_GENERATED
++                                           : ui::PAGE_TRANSITION_TYPED);
++    params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
++    Navigate(&params);
++  }
++
++  if (embedder()) {
++    embedder()->CloseUI();
++  }
++}
++
++WEB_UI_CONTROLLER_TYPE_IMPL(SteadCommandPaletteUI)
+diff --git a/chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.h b/chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.h
+new file mode 100644
+--- /dev/null
++++ b/chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.h
+@@ -0,0 +1,57 @@
++// Copyright 2026 The Stead Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_STEAD_COMMAND_PALETTE_STEAD_COMMAND_PALETTE_BUBBLE_HOST_H_
++#define CHROME_BROWSER_UI_VIEWS_STEAD_COMMAND_PALETTE_STEAD_COMMAND_PALETTE_BUBBLE_HOST_H_
++
++#include <memory>
++
++#include "base/memory/raw_ptr.h"
++#include "base/scoped_observation.h"
++#include "chrome/browser/ui/views/bubble/webui_bubble_manager.h"
++#include "chrome/browser/ui/views/bubble/webui_bubble_manager_observer.h"
++#include "ui/base/unowned_user_data/scoped_unowned_user_data.h"
++
++class BrowserView;
++class BrowserWindowInterface;
++class SteadCommandPaletteUI;
++
++// Per-window owner of the Cmd+T command palette bubble. Created by
++// BrowserWindowFeatures for normal browser windows; the bubble is a
++// WebUIBubbleDialogView floating over the window's content area and hosting
++// SteadCommandPaletteUI. Closes with Esc, focus loss, or tab activation.
++class SteadCommandPaletteBubbleHost : public WebUIBubbleManagerObserver {
++ public:
++  DECLARE_USER_DATA(SteadCommandPaletteBubbleHost);
++
++  SteadCommandPaletteBubbleHost(BrowserWindowInterface* browser_window,
++                                BrowserView* browser_view);
++  SteadCommandPaletteBubbleHost(const SteadCommandPaletteBubbleHost&) = delete;
++  SteadCommandPaletteBubbleHost& operator=(
++      const SteadCommandPaletteBubbleHost&) = delete;
++  ~SteadCommandPaletteBubbleHost() override;
++
++  static SteadCommandPaletteBubbleHost* From(
++      BrowserWindowInterface* browser_window);
++
++  // Shows the palette, or closes it if it is already open. Returns true if a
++  // bubble was shown.
++  bool Toggle();
++  void Close();
++
++  // WebUIBubbleManagerObserver:
++  void BeforeBubbleWidgetShowed(views::Widget* widget) override;
++
++ private:
++  SteadCommandPaletteUI* GetPaletteUI();
++
++  const raw_ptr<BrowserView> browser_view_;
++  std::unique_ptr<WebUIBubbleManager> bubble_manager_;
++  base::ScopedObservation<WebUIBubbleManager, WebUIBubbleManagerObserver>
++      bubble_manager_observation_{this};
++  ui::ScopedUnownedUserData<SteadCommandPaletteBubbleHost>
++      scoped_unowned_user_data_;
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_STEAD_COMMAND_PALETTE_STEAD_COMMAND_PALETTE_BUBBLE_HOST_H_
+diff --git a/chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.cc b/chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.cc
+new file mode 100644
+--- /dev/null
++++ b/chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.cc
+@@ -0,0 +1,86 @@
++// Copyright 2026 The Stead Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.h"
++
++#include <optional>
++
++#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
++#include "chrome/browser/ui/views/frame/browser_view.h"
++#include "chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.h"
++#include "chrome/common/webui_url_constants.h"
++#include "chrome/grit/generated_resources.h"
++#include "content/public/browser/web_contents.h"
++#include "content/public/browser/web_ui.h"
++#include "ui/gfx/geometry/rect.h"
++#include "ui/views/bubble/bubble_border.h"
++#include "ui/views/widget/widget.h"
++#include "url/gurl.h"
++
++namespace {
++
++// Vertical offset of the palette from the top of the content area, so it sits
++// like a spotlight rather than dead-centre.
++constexpr int kPaletteTopOffset = 96;
++
++}  // namespace
++
++DEFINE_USER_DATA(SteadCommandPaletteBubbleHost);
++
++SteadCommandPaletteBubbleHost::SteadCommandPaletteBubbleHost(
++    BrowserWindowInterface* browser_window,
++    BrowserView* browser_view)
++    : browser_view_(browser_view),
++      bubble_manager_(WebUIBubbleManager::Create<SteadCommandPaletteUI>(
++          browser_view->contents_container(),
++          browser_window,
++          GURL(chrome::kSteadCommandPaletteURL),
++          IDS_STEAD_COMMAND_PALETTE_TITLE)),
++      scoped_unowned_user_data_(browser_window->GetUnownedUserDataHost(),
++                                *this) {
++  bubble_manager_observation_.Observe(bubble_manager_.get());
++}
++
++SteadCommandPaletteBubbleHost::~SteadCommandPaletteBubbleHost() = default;
++
++// static
++SteadCommandPaletteBubbleHost* SteadCommandPaletteBubbleHost::From(
++    BrowserWindowInterface* browser_window) {
++  return Get(browser_window->GetUnownedUserDataHost());
++}
++
++bool SteadCommandPaletteBubbleHost::Toggle() {
++  if (bubble_manager_->GetBubbleWidget()) {
++    Close();
++    return false;
++  }
++
++  // Anchor to a zero-height strip near the top of the content area; NONE
++  // places the bubble directly below the anchor, horizontally centred.
++  gfx::Rect anchor = browser_view_->contents_container()->GetBoundsInScreen();
++  anchor.set_height(0);
++  anchor.Offset(0, kPaletteTopOffset);
++  return bubble_manager_->ShowBubble(anchor, views::BubbleBorder::NONE);
++}
++
++void SteadCommandPaletteBubbleHost::Close() {
++  bubble_manager_->CloseBubble();
++}
++
++void SteadCommandPaletteBubbleHost::BeforeBubbleWidgetShowed(
++    views::Widget* widget) {
++  // The bubble manager caches the WebContents between shows, so the page must
++  // reset its query rather than relying on a fresh load.
++  if (SteadCommandPaletteUI* palette_ui = GetPaletteUI()) {
++    palette_ui->BeforeBubbleWidgetShowed();
++  }
++}
++
++SteadCommandPaletteUI* SteadCommandPaletteBubbleHost::GetPaletteUI() {
++  WebUIContentsWrapper* wrapper = bubble_manager_->GetContentsWrapper();
++  content::WebContents* contents = wrapper ? wrapper->web_contents() : nullptr;
++  content::WebUI* web_ui = contents ? contents->GetWebUI() : nullptr;
++  return web_ui ? web_ui->GetController()->GetAs<SteadCommandPaletteUI>()
++                : nullptr;
++}

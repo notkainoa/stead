@@ -1,0 +1,26 @@
+{
+	"version": 1,
+	"ports": {
+		"preview": 3000,
+		"additional": {}
+	},
+	"scripts": {
+		"setup": {
+			"enabled": true,
+			"command": "cd ui && bun install --frozen-lockfile"
+		},
+		"run": {
+			"enabled": true,
+			"command": "cd ui && bun dev --port 3000 --host 0.0.0.0"
+		},
+		"archive": {
+			"enabled": true,
+			"command": null
+		},
+		"check": {
+			"enabled": true,
+			"command": "cd ui && bun run check"
+		}
+	},
+	"mcpServers": []
+}
