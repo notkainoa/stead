@@ -75,6 +75,7 @@ is current.
 | `/ai-sidebar`  | **Ask Stead** side panel (toolbar)   | wired                      |
 | `/ai-chat`     | full-page chat, `stead://chat/ai-chat` | wired                    |
 | `/new-tab`     | new-tab page                         | wired                      |
+| `/command-palette` | ⌘T command palette bubble (opt-in setting) | wired            |
 | `/`            | (placeholder)                        | —                          |
 
 Each surface is one small patch in `patches/stead/…` that points the **same**

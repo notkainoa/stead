@@ -1,0 +1,122 @@
+--- a/chrome/common/webui_url_constants.h
++++ b/chrome/common/webui_url_constants.h
+@@ -428,6 +428,10 @@
+ inline constexpr char kSteadChatURL[] = "chrome://chat/ai-chat";
+ inline constexpr char kSteadNewTabHost[] = "stead-newtab";
+ inline constexpr char kSteadNewTabURL[] = "chrome://stead-newtab/new-tab";
++inline constexpr char kSteadCommandPaletteHost[] =
++    "command-palette.top-chrome";
++inline constexpr char kSteadCommandPaletteURL[] =
++    "chrome://command-palette.top-chrome/command-palette";
+ inline constexpr char kChromeUISearchEngineChoiceHost[] =
+     "search-engine-choice";
+ inline constexpr char kChromeUISearchEngineChoiceURL[] =
+--- a/chrome/browser/ui/webui/chrome_web_ui_configs.cc
++++ b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+@@ -127,6 +127,7 @@
+ #include "chrome/browser/ui/webui/side_panel/reading_list/reading_list_ui.h"
+ #include "chrome/browser/ui/webui/side_panel/stead_sidebar/stead_sidebar_ui.h"
+ #include "chrome/browser/ui/webui/stead_chat/stead_chat_ui.h"
++#include "chrome/browser/ui/webui/stead_command_palette/stead_command_palette_ui.h"
+ #include "chrome/browser/ui/webui/stead_newtab/stead_newtab_ui.h"
+ #include "chrome/browser/ui/webui/side_panel/tabs_from_other_devices/tabs_from_other_devices_side_panel_ui.h"
+ #include "chrome/browser/ui/webui/signin/sync_confirmation_ui.h"
+@@ -373,6 +374,7 @@
+   map.AddWebUIConfig(std::make_unique<SteadSidebarUIConfig>());
+   map.AddWebUIConfig(std::make_unique<SteadChatUIConfig>());
+   map.AddWebUIConfig(std::make_unique<SteadNewTabUIConfig>());
++  map.AddWebUIConfig(std::make_unique<SteadCommandPaletteUIConfig>());
+   map.AddWebUIConfig(std::make_unique<SearchEngineChoiceUIConfig>());
+   map.AddWebUIConfig(std::make_unique<settings::SettingsUIConfig>());
+   map.AddWebUIConfig(std::make_unique<ShoppingInsightsSidePanelUIConfig>());
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -1581,6 +1581,8 @@
+       "webui/side_panel/stead_sidebar/stead_sidebar_ui.h",
+       "webui/stead_chat/stead_chat_ui.cc",
+       "webui/stead_chat/stead_chat_ui.h",
++      "webui/stead_command_palette/stead_command_palette_ui.cc",
++      "webui/stead_command_palette/stead_command_palette_ui.h",
+       "webui/stead_newtab/stead_newtab_ui.cc",
+       "webui/stead_newtab/stead_newtab_ui.h",
+       "webui/side_panel/tabs_from_other_devices/synced_screenshot_data_source.cc",
+@@ -4644,6 +4646,8 @@
+       "views/tab_icon_view.h",
+       "views/tab_modal_confirm_dialog_views.cc",
+       "views/tab_modal_confirm_dialog_views.h",
++      "views/stead_command_palette/stead_command_palette_bubble_host.cc",
++      "views/stead_command_palette/stead_command_palette_bubble_host.h",
+       "views/tab_search_bubble_host.cc",
+       "views/tab_search_bubble_host.h",
+       "views/tab_sharing/tab_capture_contents_border_helper.cc",
+--- a/chrome/app/generated_resources.grd
++++ b/chrome/app/generated_resources.grd
+@@ -9390,6 +9390,9 @@
+       <message name="IDS_STEAD_SIDEBAR_TITLE" desc="Label for the Stead AI sidebar side-panel button (replaces the reading list slot).">
+         Ask Stead
+       </message>
++      <message name="IDS_STEAD_COMMAND_PALETTE_TITLE" desc="Accessible name and task manager label for the Stead command palette bubble opened with the new-tab shortcut.">
++        Command palette
++      </message>
+       <message name="IDS_READ_LATER_EXPAND_BUTTON_ARIA_LABEL" desc="Aria label for the Read later list expand button.">
+         Expand <ph name="HEADER">$1<ex>Unread</ex></ph>
+       </message>
+--- a/tools/metrics/histograms/metadata/page/histograms.xml
++++ b/tools/metrics/histograms/metadata/page/histograms.xml
+@@ -601,6 +601,7 @@
+   <variant name=".ReadingList"/>
+   <variant name=".ReloadButtonUI"/>
+   <variant name=".ShoppingInsightsSidePanel"/>
++  <variant name=".SteadCommandPalette"/>
+   <variant name=".SteadSidebar"/>
+   <variant name=".TabSearch"/>
+   <variant name=".TabsFromOtherDevicesSidePanel"/>
+--- a/chrome/browser/ui/browser_window/public/browser_window_features.h
++++ b/chrome/browser/ui/browser_window/public/browser_window_features.h
+@@ -92,6 +92,7 @@
+ class SidePanelUI;
+ class SigninViewController;
+ class SplitViewIphController;
++class SteadCommandPaletteBubbleHost;
+ class TabMenuModelDelegate;
+ class TabSearchToolbarButtonController;
+ class TabsFromOtherDevicesSidePanelCoordinator;
+@@ -695,6 +696,9 @@
+   std::unique_ptr<TabSearchToolbarButtonController>
+       tab_search_toolbar_button_controller_;
+ 
++  std::unique_ptr<SteadCommandPaletteBubbleHost>
++      stead_command_palette_bubble_host_;
++
+   std::unique_ptr<content_settings::CookieControlsController>
+       cookie_controls_controller_;
+ 
+--- a/chrome/browser/ui/browser_window/internal/browser_window_features.cc
++++ b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
+@@ -102,6 +102,7 @@
+ #include "chrome/browser/ui/toasts/toast_service.h"
+ #include "chrome/browser/ui/toolbar/chrome_labs/chrome_labs_utils.h"
+ #include "chrome/browser/ui/toolbar/pinned_toolbar/tab_search_toolbar_button_controller.h"
++#include "chrome/browser/ui/views/stead_command_palette/stead_command_palette_bubble_host.h"
+ #include "chrome/browser/ui/ui_features.h"
+ #include "chrome/browser/ui/unload_controller.h"
+ #include "chrome/browser/ui/views/animations/side_panel_animations.h"
+@@ -978,6 +979,10 @@
+           GetUserDataFactory().CreateInstance<TabSearchToolbarButtonController>(
+               *browser_, browser_.get(), browser_view);
+     }
++
++    stead_command_palette_bubble_host_ =
++        GetUserDataFactory().CreateInstance<SteadCommandPaletteBubbleHost>(
++            *browser_, browser_.get(), browser_view);
+   }
+ 
+   if (browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL ||
+@@ -1054,6 +1059,7 @@
+   ai_overlay_dialog_controller_.reset();
+   lens_overlay_entry_point_controller_.reset();
+   initial_web_ui_manager_.reset();
++  stead_command_palette_bubble_host_.reset();
+   tab_search_toolbar_button_controller_.reset();
+   profile_menu_coordinator_.reset();
+   toast_service_.reset();

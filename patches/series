@@ -68,3 +68,7 @@ stead/brain/replay-ready-to-new-observers.patch
 stead/branding/rebrand-internal-scheme-and-chat-omnibox.patch
 stead/branding/rebrand-settings-copy.patch
 stead/agent-control/observable-state-and-eval.patch
+
+stead/command-palette/command-palette-files.patch
+stead/command-palette/register-command-palette.patch
+stead/command-palette/command-palette-on-new-tab-setting.patch
