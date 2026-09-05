@@ -38,7 +38,7 @@ Index: src/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc
  #include "base/metrics/user_metrics.h"
  #include "base/metrics/user_metrics_action.h"
  #include "base/strings/string_number_conversions.h"
-@@ -358,28 +357,16 @@ void VerticalTabStripStateController::Up
+@@ -358,28 +357,18 @@ void VerticalTabStripStateController::Up
  }
  
  void VerticalTabStripStateController::UpdateCollapseActionItem() {
@@ -58,16 +58,16 @@ Index: src/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc
        actions::ActionManager::Get().FindAction(kActionToggleCollapseVertical,
                                                 root_action_item_);
    if (collapse_action) {
--    collapse_action->SetImage(
--        ui::ImageModel::FromVectorIcon(icon, ui::kColorIcon));
++    const std::u16string text = BrowserActions::GetCleanTitleAndTooltipText(
++        l10n_util::GetStringUTF16(IDS_TOGGLE_VERTICAL_TAB_SIDEBAR));
++    const gfx::VectorIcon& icon =
++        IsTabStripRightAligned() ? kDockToRightIcon : kDockToLeftIcon;
+     collapse_action->SetImage(
+         ui::ImageModel::FromVectorIcon(icon, ui::kColorIcon));
 -    collapse_action->SetText(BrowserActions::GetCleanTitleAndTooltipText(
 -        l10n_util::GetStringUTF16(text)));
 -    collapse_action->SetTooltipText(BrowserActions::GetCleanTitleAndTooltipText(
 -        l10n_util::GetStringUTF16(text)));
-+    const std::u16string text = BrowserActions::GetCleanTitleAndTooltipText(
-+        l10n_util::GetStringUTF16(IDS_TOGGLE_VERTICAL_TAB_SIDEBAR));
-+    collapse_action->SetImage(ui::ImageModel::FromVectorIcon(
-+        kDockToLeftIcon, ui::kColorIcon));
 +    collapse_action->SetText(text);
 +    collapse_action->SetTooltipText(text);
    }
@@ -115,7 +115,7 @@ Index: src/chrome/browser/ui/views/frame/vertical_tab_strip_region_view_browsert
   protected:
    // Appends a new tab to the end of the tab strip.
    content::WebContents* AppendTab() {
-@@ -524,28 +534,60 @@ IN_PROC_BROWSER_TEST_F(VerticalTabStripR
+@@ -524,28 +534,69 @@ IN_PROC_BROWSER_TEST_F(VerticalTabStripR
  IN_PROC_BROWSER_TEST_F(VerticalTabStripRegionViewTest,
                         CancelCollapseAnimationUpdatesCollapseButton) {
    actions::ActionItem* collapse_action =
@@ -137,11 +137,13 @@ Index: src/chrome/browser/ui/views/frame/vertical_tab_strip_region_view_browsert
 +  const std::u16string toggle_sidebar_text =
 +      BrowserActions::GetCleanTitleAndTooltipText(
 +          l10n_util::GetStringUTF16(IDS_TOGGLE_VERTICAL_TAB_SIDEBAR));
-+  const ui::ImageModel panel_left_icon =
-+      ui::ImageModel::FromVectorIcon(kDockToLeftIcon, ui::kColorIcon);
-+  EXPECT_EQ(toggle_sidebar_text, collapse_action->GetText());
-+  EXPECT_EQ(toggle_sidebar_text, collapse_action->GetTooltipText());
-+  EXPECT_EQ(panel_left_icon, collapse_action->GetImage());
++  auto verify_presentation = [&](const gfx::VectorIcon& icon) {
++    EXPECT_EQ(toggle_sidebar_text, collapse_action->GetText());
++    EXPECT_EQ(toggle_sidebar_text, collapse_action->GetTooltipText());
++    EXPECT_EQ(ui::ImageModel::FromVectorIcon(icon, ui::kColorIcon),
++              collapse_action->GetImage());
++  };
++  verify_presentation(kDockToLeftIcon);
  
    // Cancel the collapse request with an expand request.
    state_controller()->RequestCollapse(false);
@@ -152,9 +154,10 @@ Index: src/chrome/browser/ui/views/frame/vertical_tab_strip_region_view_browsert
 -  EXPECT_EQ(BrowserActions::GetCleanTitleAndTooltipText(
 -                l10n_util::GetStringUTF16(IDS_COLLAPSE_VERTICAL_TABS)),
 -            collapse_action->GetText());
-+  EXPECT_EQ(toggle_sidebar_text, collapse_action->GetText());
-+  EXPECT_EQ(toggle_sidebar_text, collapse_action->GetTooltipText());
-+  EXPECT_EQ(panel_left_icon, collapse_action->GetImage());
++  verify_presentation(kDockToLeftIcon);
++
++  state_controller()->SetTabStripRightAligned(true);
++  verify_presentation(kDockToRightIcon);
 +}
 +
 +IN_PROC_BROWSER_TEST_F(VerticalTabStripRegionViewTest,
@@ -170,7 +173,10 @@ Index: src/chrome/browser/ui/views/frame/vertical_tab_strip_region_view_browsert
 +        collapse_button->GetImageModel(views::Button::STATE_NORMAL);
 +    ASSERT_TRUE(image.has_value());
 +    ASSERT_TRUE(image->IsVectorIcon());
-+    EXPECT_EQ(&kDockToLeftIcon, image->GetVectorIcon().vector_icon());
++    const gfx::VectorIcon& expected_icon =
++        state_controller()->IsTabStripRightAligned() ? kDockToRightIcon
++                                                     : kDockToLeftIcon;
++    EXPECT_EQ(&expected_icon, image->GetVectorIcon().vector_icon());
 +  };
 +
 +  verify_presentation();
@@ -178,6 +184,9 @@ Index: src/chrome/browser/ui/views/frame/vertical_tab_strip_region_view_browsert
 +  state_controller()->RequestCollapse(true);
 +  ASSERT_TRUE(base::test::RunUntil(
 +      [&]() { return state_controller()->IsCollapsed(); }));
++  verify_presentation();
++
++  state_controller()->SetTabStripRightAligned(true);
 +  verify_presentation();
 +
 +  state_controller()->RequestCollapse(false);
@@ -199,7 +208,7 @@ Index: src/chrome/browser/ui/views/toolbar/toolbar_view.cc
  #include "chrome/browser/actor/ui/actor_ui_metrics.h"
  #include "chrome/browser/actor/ui/task_list_bubble/actor_task_list_bubble_controller.h"
  #include "chrome/browser/command_updater.h"
-@@ -2059,15 +2060,10 @@ void ToolbarView::UpdateVerticalTabsColl
+@@ -2059,13 +2060,11 @@ void ToolbarView::UpdateVerticalTabsColl
      return;
    }
  
@@ -212,9 +221,9 @@ Index: src/chrome/browser/ui/views/toolbar/toolbar_view.cc
 -  const std::u16string text = l10n_util::GetStringUTF16(text_id);
 +  const std::u16string text =
 +      l10n_util::GetStringUTF16(IDS_TOGGLE_VERTICAL_TAB_SIDEBAR);
++  const gfx::VectorIcon& icon = controller->IsTabStripRightAligned()
++                                    ? kDockToRightIcon
++                                    : kDockToLeftIcon;
  
--  vertical_tabs_collapse_button_->SetVectorIcon(icon);
-+  vertical_tabs_collapse_button_->SetVectorIcon(kDockToLeftIcon);
+   vertical_tabs_collapse_button_->SetVectorIcon(icon);
    vertical_tabs_collapse_button_->SetTooltipText(text);
-   vertical_tabs_collapse_button_->GetViewAccessibility().SetName(text);
- }
