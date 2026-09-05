@@ -4,8 +4,8 @@ Stead is a Chromium browser built on Helium with a native AI agent. The product
 should retain full browser feature parity with Helium while keeping
 Stead-specific code small, fast, and easy to rebase.
 
-These instructions apply to the entire repository. A more specific
-`AGENTS.md` adds rules for its own subtree.
+These instructions apply to the entire repository. There might be more specific
+`AGENTS.md` files that add rules for their own subtrees.
 
 ## Product invariants
 
@@ -80,6 +80,16 @@ These instructions apply to the entire repository. A more specific
 - Never commit or print provider API keys, session data, browser profiles, or
   authentication material.
 
+## Communication style
+
+- Keep explanations short and direct. State what changed, why, and what to do
+  next. No padded summaries, no restated context, no speculative background.
+- Apply the `unslop` skill to all chat replies to the user. Cut AI tells, filler,
+  and over-complicated phrasing before replying.
+- Never instruct the user to run `./st build` followed by `./st run`.
+  `./st run` already builds first, so recommend one or the other, not both
+  in sequence.
+
 ## Check every affected path
 
 Before calling a product change complete, consider:
@@ -138,7 +148,9 @@ Use the smallest proof that can fail for the behavior you changed.
   working directory, exact commands, and expected behavior. Prefer the lightest
   check that proves the change: for UI-only work, give `cd ui` followed by
   `bun dev` first, then note `./st run` from the repository root as the optional
-  full browser check when native integration matters. These are manual steps for
+  full browser check when native integration matters. List these as alternatives,
+  not sequential steps. Never list `./st build` and `./st run` as sequential
+  steps since `./st run` already builds. These are manual steps for
   the user; they do not authorize the agent to run `./st run` itself without an
   explicit launch request.
 - Separate checks already run by the agent from manual verification the user
