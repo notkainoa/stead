@@ -5,6 +5,7 @@ _root_dir="$(cd "$(dirname "$_dev_script")" && pwd -P)"
 
 source "$_root_dir/env.sh"
 source "$_root_dir/devutils/set_quilt_vars.sh"
+source "$_root_dir/devutils/patch_series_stale.sh"
 
 _setup_marker="$_out_dir/.stead-setup-complete"
 _presetup_marker="$_out_dir/.stead-presetup-complete"
@@ -221,24 +222,17 @@ ___stead_patch_series_is_merged() {
     [ -f "$_root_dir/patches/series.merged" ]
 }
 
-# Returns 0 when patches/series lists entries missing from the generated
-# patches/series.merged (Quilt's actual source of truth). A stale merged
-# file makes setup report "already fully applied" while building the old
-# tree, so callers must fail loudly instead of pushing or building.
+# Delegates to the shared checker in devutils/patch_series_stale.sh so setup,
+# push, build, and merge all agree on what "stale" means. Quilt's actual
+# source of truth is the generated patches/series.merged: a stale file makes
+# setup report "already fully applied" while building the old tree, so
+# callers must fail loudly instead of pushing or building.
 ___stead_patch_series_is_stale() {
-    [ -f "$_root_dir/patches/series" ] || return 1
-    [ -f "$_root_dir/patches/series.merged" ] || return 1
-    local missing
-    missing="$(awk 'NF && $1 !~ /^#/ { print $1 }' "$_root_dir/patches/series" | while read -r patch; do
-        if ! awk 'NF && $1 !~ /^#/ { print $1 }' "$_root_dir/patches/series.merged" | grep -Fxq "$patch"; then
-            printf '%s\n' "$patch"
-        fi
-    done)"
-    [ -n "$missing" ]
+    stead_patch_series_is_stale "$_root_dir/patches"
 }
 
 ___stead_patch_series_stale_message() {
-    echo "patches/series.merged is stale: patches/series lists patches missing from it." >&2
+    echo "patches/series.merged is stale: it no longer matches patches/series." >&2
     echo "Run './st pop', './st unmerge', './st merge', then './st setup' to regenerate." >&2
 }
 
@@ -394,6 +388,12 @@ ___helium_setup() {
     fi
 
     if ___stead_setup_is_complete; then
+        # A completed setup predates later series edits. Report stale patch
+        # state here too instead of claiming there is nothing to do.
+        if [ "$force" != "--force" ] && ___stead_patch_series_is_stale; then
+            ___stead_patch_series_stale_message
+            return 1
+        fi
         if ! ___stead_should_redo_setup "$force"; then
             return 0
         fi

@@ -177,7 +177,8 @@ test_patch_failure_is_resumable() (
   trap 'rm -rf "$fixture_root"' EXIT
   mkdir -p "$fixture_root/src/out/Default" "$fixture_root/patches"
   touch "$fixture_root/src/out/Default/.stead-presetup-complete"
-  touch "$fixture_root/patches/series.merged"
+  printf 'stead/final.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/final.patch\n' > "$fixture_root/patches/series.merged"
 
   # shellcheck source=../dev.sh
   source "$repo_root/dev.sh"
@@ -211,6 +212,7 @@ test_fully_applied_patch_stack_is_success() (
   trap 'rm -rf "$fixture_root"' EXIT
   mkdir -p "$fixture_root/src/out/Default" "$fixture_root/patches"
   touch "$fixture_root/src/out/Default/.stead-presetup-complete"
+  printf 'stead/final.patch\n' > "$fixture_root/patches/series"
   printf 'stead/final.patch\n' > "$fixture_root/patches/series.merged"
 
   # shellcheck source=../dev.sh
@@ -248,6 +250,7 @@ test_setup_patch_state_stays_out_of_git() (
     "$fixture_root/patches/ungoogled-chromium/macos"
   cp "$repo_root/.gitignore" "$fixture_root/.gitignore"
   cp "$repo_root/devutils/update_patches.sh" "$fixture_root/devutils/update_patches.sh"
+  cp "$repo_root/devutils/patch_series_stale.sh" "$fixture_root/devutils/patch_series_stale.sh"
   ln -s "$repo_root/helium-chromium" "$fixture_root/helium-chromium"
   printf 'stead/local.patch\n' > "$fixture_root/patches/series"
   printf 'tracked platform patch\n' > "$fixture_root/patches/helium/macos/local.patch"
@@ -300,6 +303,135 @@ test_setup_patch_state_stays_out_of_git() (
   [ "$status" = "$expected" ] || fail "generated-file protection hid patch source work: $status"
 )
 
+test_stale_additions_fail_setup_before_push() (
+  fixture_root="$(mktemp -d /tmp/stead-dev-test.XXXXXX)"
+  trap 'rm -rf "$fixture_root"' EXIT
+  mkdir -p "$fixture_root/src/out/Default" "$fixture_root/patches"
+  touch "$fixture_root/src/out/Default/.stead-presetup-complete"
+  printf 'stead/old.patch\nstead/new.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/old.patch\n' > "$fixture_root/patches/series.merged"
+
+  # shellcheck source=../dev.sh
+  source "$repo_root/dev.sh"
+  _root_dir="$fixture_root"
+  _src_dir="$fixture_root/src"
+  _out_dir="$_src_dir/out/Default"
+  _setup_marker="$_out_dir/.stead-setup-complete"
+  _presetup_marker="$_out_dir/.stead-presetup-complete"
+
+  ___stead_preflight() { :; }
+  ___stead_prepare_submodules() { :; }
+  ___stead_validate_patch_syntax() { :; }
+  ___stead_sync_resources() { :; }
+  ___stead_quilt() { fail "stale setup attempted a quilt push"; }
+
+  output="$(stead_cli setup 2>&1)"
+  status=$?
+
+  [ "$status" -ne 0 ] || fail "stale patch series unexpectedly succeeded"
+  [[ "$output" == *"is stale"* ]] || fail "stale setup did not report stale state"
+  [[ "$output" == *"./st unmerge"* ]] || fail "stale setup did not give the regen command"
+)
+
+test_stale_removal_fails_setup_before_push() (
+  fixture_root="$(mktemp -d /tmp/stead-dev-test.XXXXXX)"
+  trap 'rm -rf "$fixture_root"' EXIT
+  mkdir -p "$fixture_root/src/out/Default" "$fixture_root/patches"
+  touch "$fixture_root/src/out/Default/.stead-presetup-complete"
+  printf 'stead/old.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/old.patch\nstead/removed.patch\n' > "$fixture_root/patches/series.merged"
+
+  # shellcheck source=../dev.sh
+  source "$repo_root/dev.sh"
+  _root_dir="$fixture_root"
+  _src_dir="$fixture_root/src"
+  _out_dir="$_src_dir/out/Default"
+  _setup_marker="$_out_dir/.stead-setup-complete"
+  _presetup_marker="$_out_dir/.stead-presetup-complete"
+
+  ___stead_preflight() { :; }
+  ___stead_prepare_submodules() { :; }
+  ___stead_validate_patch_syntax() { :; }
+  ___stead_sync_resources() { :; }
+  ___stead_quilt() { fail "stale setup attempted a quilt push"; }
+
+  output="$(stead_cli setup 2>&1)"
+  status=$?
+
+  [ "$status" -ne 0 ] || fail "removed patch unexpectedly succeeded"
+  [[ "$output" == *"is stale"* ]] || fail "removed patch did not report stale state"
+)
+
+test_completed_setup_reports_stale_instead_of_noop() (
+  fixture_root="$(mktemp -d /tmp/stead-dev-test.XXXXXX)"
+  trap 'rm -rf "$fixture_root"' EXIT
+  mkdir -p "$fixture_root/src/out/Default" "$fixture_root/patches"
+  touch "$fixture_root/src/out/Default/.stead-presetup-complete"
+  touch "$fixture_root/src/out/Default/.stead-setup-complete"
+  printf 'stead/old.patch\nstead/new.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/old.patch\n' > "$fixture_root/patches/series.merged"
+
+  # shellcheck source=../dev.sh
+  source "$repo_root/dev.sh"
+  _root_dir="$fixture_root"
+  _src_dir="$fixture_root/src"
+  _out_dir="$_src_dir/out/Default"
+  _setup_marker="$_out_dir/.stead-setup-complete"
+  _presetup_marker="$_out_dir/.stead-presetup-complete"
+
+  output="$(stead_cli setup 2>&1)"
+  status=$?
+
+  [ "$status" -ne 0 ] || fail "completed setup hid stale patch state"
+  [[ "$output" == *"is stale"* ]] || fail "completed setup did not report stale state"
+  [[ "$output" != *"already complete; nothing to do"* ]] || fail "completed setup claimed no-op on stale state"
+)
+
+test_stale_checker_directions_and_prepend() (
+  # shellcheck source=../dev.sh
+  source "$repo_root/dev.sh"
+  fixture_root="$(mktemp -d /tmp/stead-dev-test.XXXXXX)"
+  trap 'rm -rf "$fixture_root"' EXIT
+  _root_dir="$fixture_root"
+
+  mkdir -p "$fixture_root/patches"
+  printf 'stead/a.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/a.patch\n' > "$fixture_root/patches/series.merged"
+  ___stead_patch_series_is_stale && fail "matching series reported stale"
+
+  printf 'stead/a.patch\nstead/b.patch\n' > "$fixture_root/patches/series"
+  ___stead_patch_series_is_stale || fail "added patch was not reported stale"
+
+  printf 'stead/a.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/a.patch\nstead/gone.patch\n' > "$fixture_root/patches/series.merged"
+  ___stead_patch_series_is_stale || fail "removed Stead patch was not reported stale"
+
+  # Without series.prepend, platform entries lingering in merged are not
+  # treated as removals; only the Stead-owned namespace is checked.
+  printf 'stead/a.patch\nhelium/macos/keep.patch\n' > "$fixture_root/patches/series.merged"
+  printf 'stead/a.patch\n' > "$fixture_root/patches/series"
+  ___stead_patch_series_is_stale && fail "platform entry without prepend reported stale"
+
+  # With series.prepend present, a platform entry in neither file is a removal.
+  printf 'stead/a.patch\nhelium/macos/keep.patch\n' > "$fixture_root/patches/series"
+  printf 'stead/a.patch\nhelium/macos/keep.patch\nhelium/macos/gone.patch\n' > "$fixture_root/patches/series.merged"
+  printf 'helium/macos/keep.patch\n' > "$fixture_root/patches/series.prepend"
+  ___stead_patch_series_is_stale || fail "removed platform entry was not reported stale"
+
+  # A prepend-listed platform entry lingering in merged is legitimate, not stale.
+  printf 'stead/a.patch\nhelium/macos/keep.patch\n' > "$fixture_root/patches/series.merged"
+  ___stead_patch_series_is_stale && fail "prepend-listed entry reported stale"
+
+  # Missing committed source fails closed instead of trusting merged.
+  rm "$fixture_root/patches/series"
+  ___stead_patch_series_is_stale || fail "missing series was trusted"
+
+  # No generated state means nothing to be stale against.
+  rm "$fixture_root/patches/series.merged"
+  ___stead_patch_series_is_stale && fail "absent merged reported stale"
+  return 0
+)
+
 test_help_is_an_explicit_command() (
   # shellcheck source=../dev.sh
   source "$repo_root/dev.sh"
@@ -332,5 +464,9 @@ run_test test_force_recreates_a_completed_setup
 run_test test_run_builds_before_launching
 run_test test_patch_failure_is_resumable
 run_test test_fully_applied_patch_stack_is_success
+run_test test_stale_additions_fail_setup_before_push
+run_test test_stale_removal_fails_setup_before_push
+run_test test_completed_setup_reports_stale_instead_of_noop
+run_test test_stale_checker_directions_and_prepend
 run_test test_setup_patch_state_stays_out_of_git
 run_test test_help_is_an_explicit_command
