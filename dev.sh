@@ -221,6 +221,27 @@ ___stead_patch_series_is_merged() {
     [ -f "$_root_dir/patches/series.merged" ]
 }
 
+# Returns 0 when patches/series lists entries missing from the generated
+# patches/series.merged (Quilt's actual source of truth). A stale merged
+# file makes setup report "already fully applied" while building the old
+# tree, so callers must fail loudly instead of pushing or building.
+___stead_patch_series_is_stale() {
+    [ -f "$_root_dir/patches/series" ] || return 1
+    [ -f "$_root_dir/patches/series.merged" ] || return 1
+    local missing
+    missing="$(awk 'NF && $1 !~ /^#/ { print $1 }' "$_root_dir/patches/series" | while read -r patch; do
+        if ! awk 'NF && $1 !~ /^#/ { print $1 }' "$_root_dir/patches/series.merged" | grep -Fxq "$patch"; then
+            printf '%s\n' "$patch"
+        fi
+    done)"
+    [ -n "$missing" ]
+}
+
+___stead_patch_series_stale_message() {
+    echo "patches/series.merged is stale: patches/series lists patches missing from it." >&2
+    echo "Run './st pop', './st unmerge', './st merge', then './st setup' to regenerate." >&2
+}
+
 ___stead_patch_stack_is_fully_applied() {
     local last_patch
     local top_patch
@@ -411,6 +432,10 @@ ___helium_setup() {
             # Repair generated state left by the old destructive merge flow.
             cp "$_root_dir/patches/series.orig" "$_root_dir/patches/series"
         fi
+        if ___stead_patch_series_is_stale; then
+            ___stead_patch_series_stale_message
+            return 1
+        fi
     else
         "$_root_dir/devutils/update_patches.sh" merge
     fi
@@ -510,6 +535,13 @@ ___helium_build() {
     # and safe to retry.
     ___stead_preflight
 
+    # A new patch added after setup leaves a stale series.merged behind.
+    # Building now would silently compile the old tree.
+    if ___stead_patch_series_is_stale; then
+        ___stead_patch_series_stale_message
+        return 1
+    fi
+
     # Keep generated WebUI assets and the Chromium resource tree in sync so a
     # normal build never depends on a separate resources command.
     ___stead_sync_resources
@@ -578,6 +610,10 @@ ___helium_patches_unmerge() {
 }
 
 ___helium_quilt_push() {
+    if ___stead_patch_series_is_stale; then
+        ___stead_patch_series_stale_message
+        return 1
+    fi
     cd "$_src_dir" && ___stead_quilt push -a --refresh
 }
 
