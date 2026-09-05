@@ -29,6 +29,8 @@ stead/branding/rebrand-password-generated-strings-to-stead-vault.patch
 stead/branding/rebrand-password-ui-remaining-strings-to-stead-vault.patch
 stead/branding/rebrand-password-generic-remaining-strings-to-stead-vault.patch
 
+stead/layout/close-vertical-tab-sidebar-on-collapse.patch
+
 stead/sidebar/stead-sidebar-webui-files.patch
 stead/sidebar/register-stead-sidebar.patch
 stead/sidebar/sidebar-resources-dep.patch
