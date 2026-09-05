@@ -119,6 +119,13 @@ Before calling a product change complete, consider:
 
 - Keep patches focused on one behavior and give them descriptive names.
 - Add every new patch to `patches/series` in dependency order.
+- Quilt reads the generated `patches/series.merged`, not `patches/series`.
+  After touching `patches/series` or any file under `patches/stead/`, never
+  trust `already fully applied`: regenerate with `./st pop`, `./st unmerge`,
+  `./st merge`, `./st setup`, then prove the patch is applied with
+  `quilt applied | tail` and `grep -r <unique_symbol> build/src/...`.
+  Setup, push, and build now fail loudly on a stale `series.merged` instead
+  of silently building the old tree.
 - Preserve upstream context and avoid unrelated formatting in patches. Large
   context offsets often mean the patch needs a real rebase.
 - Missing optional runtime pieces should degrade to an unavailable feature.

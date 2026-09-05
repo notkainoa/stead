@@ -5,6 +5,7 @@ _root_dir="$(cd "$(dirname "$_dev_script")" && pwd -P)"
 
 source "$_root_dir/env.sh"
 source "$_root_dir/devutils/set_quilt_vars.sh"
+source "$_root_dir/devutils/patch_series_stale.sh"
 
 _setup_marker="$_out_dir/.stead-setup-complete"
 _presetup_marker="$_out_dir/.stead-presetup-complete"
@@ -221,6 +222,20 @@ ___stead_patch_series_is_merged() {
     [ -f "$_root_dir/patches/series.merged" ]
 }
 
+# Delegates to the shared checker in devutils/patch_series_stale.sh so setup,
+# push, build, and merge all agree on what "stale" means. Quilt's actual
+# source of truth is the generated patches/series.merged: a stale file makes
+# setup report "already fully applied" while building the old tree, so
+# callers must fail loudly instead of pushing or building.
+___stead_patch_series_is_stale() {
+    stead_patch_series_is_stale "$_root_dir/patches"
+}
+
+___stead_patch_series_stale_message() {
+    echo "patches/series.merged is stale: it no longer matches patches/series." >&2
+    echo "Run './st pop', './st unmerge', './st merge', then './st setup' to regenerate." >&2
+}
+
 ___stead_patch_stack_is_fully_applied() {
     local last_patch
     local top_patch
@@ -373,6 +388,12 @@ ___helium_setup() {
     fi
 
     if ___stead_setup_is_complete; then
+        # A completed setup predates later series edits. Report stale patch
+        # state here too instead of claiming there is nothing to do.
+        if [ "$force" != "--force" ] && ___stead_patch_series_is_stale; then
+            ___stead_patch_series_stale_message
+            return 1
+        fi
         if ! ___stead_should_redo_setup "$force"; then
             return 0
         fi
@@ -410,6 +431,10 @@ ___helium_setup() {
             [ -f "$_root_dir/patches/series.orig" ]; then
             # Repair generated state left by the old destructive merge flow.
             cp "$_root_dir/patches/series.orig" "$_root_dir/patches/series"
+        fi
+        if ___stead_patch_series_is_stale; then
+            ___stead_patch_series_stale_message
+            return 1
         fi
     else
         "$_root_dir/devutils/update_patches.sh" merge
@@ -510,6 +535,13 @@ ___helium_build() {
     # and safe to retry.
     ___stead_preflight
 
+    # A new patch added after setup leaves a stale series.merged behind.
+    # Building now would silently compile the old tree.
+    if ___stead_patch_series_is_stale; then
+        ___stead_patch_series_stale_message
+        return 1
+    fi
+
     # Keep generated WebUI assets and the Chromium resource tree in sync so a
     # normal build never depends on a separate resources command.
     ___stead_sync_resources
@@ -578,6 +610,10 @@ ___helium_patches_unmerge() {
 }
 
 ___helium_quilt_push() {
+    if ___stead_patch_series_is_stale; then
+        ___stead_patch_series_stale_message
+        return 1
+    fi
     cd "$_src_dir" && ___stead_quilt push -a --refresh
 }
 
